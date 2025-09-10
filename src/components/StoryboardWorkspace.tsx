@@ -269,8 +269,21 @@ const StoryboardWorkspace: React.FC = () => {
     setGeneratingFrames(prev => new Set(prev).add(frameNumber));
     
     try {
-      const characterId = frame.character ? characterMapping[frame.character] : null;
       const processedPrompt = processPrompt(frame);
+      
+      // Get all characters in the prompt and their mapped IDs/images
+      const charactersInPrompt = extractCharactersFromPrompt(frame.prompt);
+      const characterImages: Record<string, string> = {};
+      
+      charactersInPrompt.forEach(scriptChar => {
+        const charId = characterMapping[scriptChar];
+        if (charId && charId !== 0) {
+          const character = characters.find((c: any) => c.id === charId);
+          if (character && character.image_url) {
+            characterImages[scriptChar] = character.image_url;
+          }
+        }
+      });
       
       const response = await fetch(`${API_URL}/generation/single`, {
         method: 'POST',
@@ -280,7 +293,7 @@ const StoryboardWorkspace: React.FC = () => {
         },
         body: JSON.stringify({
           prompt: processedPrompt,
-          character_id: characterId,
+          character_images: characterImages,  // Send all character images
           image_size: imageSize.replace(/[\[\]]/g, ''),
           model: model
         })
@@ -438,11 +451,35 @@ const StoryboardWorkspace: React.FC = () => {
     });
   };
 
-  const getCharacterName = (scriptChar: string): string => {
-    const charId = characterMapping[scriptChar];
-    if (!charId) return scriptChar;
-    const character = characters.find((c: any) => c.id === charId);
-    return character ? character.name : scriptChar;
+  // Helper function to get character name from mapping
+  // const getCharacterName = (scriptChar: string): string => {
+  //   const charId = characterMapping[scriptChar];
+  //   if (!charId) return scriptChar;
+  //   const character = characters.find((c: any) => c.id === charId);
+  //   return character ? character.name : scriptChar;
+  // };
+
+  // Extract all character names from prompt text
+  const extractCharactersFromPrompt = (prompt: string): string[] => {
+    const characterPattern = /角色[A-Z]/g;
+    const matches = prompt.match(characterPattern);
+    return matches ? [...new Set(matches)] : [];
+  };
+
+  // Get character details with images for a list of character names
+  const getCharacterDetails = (characterNames: string[]) => {
+    return characterNames.map(scriptChar => {
+      const charId = characterMapping[scriptChar];
+      if (!charId || charId === 0) {
+        return { name: scriptChar, image: null };
+      }
+      const character = characters.find((c: any) => c.id === charId);
+      return {
+        name: character ? character.name : scriptChar,
+        image: character ? character.image_url : null,
+        originalName: scriptChar
+      };
+    });
   };
 
   // Replace character names in prompts with mapped character names
@@ -741,7 +778,7 @@ const StoryboardWorkspace: React.FC = () => {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-16">序号</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase min-w-[300px]">脚本文案</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-32">角色名称</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-48">角色</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-28">生成的图片</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-32">操作</th>
                 </tr>
@@ -793,8 +830,38 @@ const StoryboardWorkspace: React.FC = () => {
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-4 text-sm">
-                      {frame.character ? getCharacterName(frame.character) : '-'}
+                    <td className="px-4 py-4">
+                      {(() => {
+                        const charactersInPrompt = extractCharactersFromPrompt(frame.prompt);
+                        if (charactersInPrompt.length === 0) return <span className="text-sm text-gray-400">-</span>;
+                        
+                        const characterDetails = getCharacterDetails(charactersInPrompt);
+                        return (
+                          <div className="flex flex-wrap gap-2">
+                            {characterDetails.map((char, idx) => (
+                              <div key={idx} className="flex flex-col items-center">
+                                {char.image ? (
+                                  <img
+                                    src={char.image}
+                                    alt={char.name}
+                                    className="w-10 h-14 object-cover rounded cursor-pointer hover:shadow-lg transition-shadow"
+                                    style={{ objectFit: 'contain', backgroundColor: '#f9fafb' }}
+                                    onClick={() => setExpandedCharPreview(char.image)}
+                                    title={`${char.originalName} → ${char.name}`}
+                                  />
+                                ) : (
+                                  <div className="w-10 h-14 bg-gray-200 rounded flex items-center justify-center">
+                                    <span className="text-xs text-gray-500">无</span>
+                                  </div>
+                                )}
+                                <span className="text-xs mt-1 text-center truncate max-w-[60px]" title={char.name}>
+                                  {char.name}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-4">
                       {generatingFrames.has(frame.frame_number) ? (
