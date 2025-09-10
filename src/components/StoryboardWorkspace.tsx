@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { API_URL } from '../config/api';
-import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X } from 'lucide-react';
+import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send } from 'lucide-react';
 
 interface ScriptFrame {
   id?: number;
@@ -336,6 +336,48 @@ const StoryboardWorkspace: React.FC = () => {
         newSet.delete(frameNumber);
         return newSet;
       });
+    }
+  };
+
+  // Submit single frame to external service
+  const submitSingleFrame = async (frameNumber: number) => {
+    const frame = scriptFrames.find(f => f.frame_number === frameNumber);
+    if (!frame) return;
+    
+    try {
+      // Get all characters in this frame and their images
+      const charactersInPrompt = frame.charactersInFrame || extractCharactersFromPrompt(frame.originalPrompt || frame.prompt);
+      const characterImages: Record<string, string> = {};
+      
+      charactersInPrompt.forEach(scriptChar => {
+        const charId = characterMapping[scriptChar];
+        if (charId && charId !== 0) {
+          const character = characters.find((c: any) => c.id === charId);
+          if (character && character.image_url) {
+            characterImages[scriptChar] = character.image_url;
+          }
+        }
+      });
+      
+      // Prepare submission data
+      const submissionData = {
+        frame_number: frame.frame_number,
+        prompt: frame.prompt,
+        character_images: characterImages,
+        image_size: imageSize?.replace(/[\[\]]/g, ''),
+        model: model,
+        generated_image: frame.generated_image
+      };
+      
+      // Here you would submit to your external service
+      console.log('Submitting frame:', submissionData);
+      
+      // Show success message
+      alert(`帧 ${frameNumber} 已提交`);
+      
+    } catch (error) {
+      console.error('Failed to submit frame:', error);
+      alert('提交失败，请重试');
     }
   };
 
@@ -931,13 +973,22 @@ const StoryboardWorkspace: React.FC = () => {
                           <RefreshCw className="w-4 h-4" />
                         </button>
                         {frame.generated_image && (
-                          <button
-                            onClick={() => downloadImage(frame.generated_image!, frame.frame_number)}
-                            className="text-green-500 hover:text-green-700"
-                            title="下载"
-                          >
-                            <Download className="w-4 h-4" />
-                          </button>
+                          <>
+                            <button
+                              onClick={() => downloadImage(frame.generated_image!, frame.frame_number)}
+                              className="text-green-500 hover:text-green-700"
+                              title="下载"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => submitSingleFrame(frame.frame_number)}
+                              className="text-purple-500 hover:text-purple-700"
+                              title="提交"
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </td>
