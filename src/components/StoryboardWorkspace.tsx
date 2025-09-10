@@ -339,68 +339,6 @@ const StoryboardWorkspace: React.FC = () => {
     }
   };
 
-  // Submit single frame to external service
-  const submitSingleFrame = async (frameNumber: number) => {
-    const frame = scriptFrames.find(f => f.frame_number === frameNumber);
-    if (!frame) return;
-    
-    if (!frame.generated_image) {
-      alert('请先生成图片');
-      return;
-    }
-    
-    try {
-      // Get all characters in this frame and their images
-      const charactersInPrompt = frame.charactersInFrame || extractCharactersFromPrompt(frame.originalPrompt || frame.prompt);
-      const characterImages: Record<string, string> = {};
-      
-      charactersInPrompt.forEach(scriptChar => {
-        const charId = characterMapping[scriptChar];
-        if (charId && charId !== 0) {
-          const character = characters.find((c: any) => c.id === charId);
-          if (character && character.image_url) {
-            characterImages[scriptChar] = character.image_url;
-          }
-        }
-      });
-      
-      // Submit to generation API
-      const response = await fetch(`${API_URL}/generation/submit`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          script_id: parseInt(selectedScriptId),
-          frame_number: frame.frame_number,
-          prompt: frame.prompt,
-          character_images: characterImages,
-          image_size: imageSize?.replace(/[\[\]]/g, ''),
-          model: model,
-          generated_image_url: frame.generated_image,
-          metadata: {
-            original_prompt: frame.originalPrompt || frame.prompt,
-            characters_in_frame: charactersInPrompt
-          }
-        })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Frame submitted:', result);
-        alert(`帧 ${frameNumber} 提交成功`);
-      } else {
-        const error = await response.text();
-        console.error('Submit failed:', error);
-        alert(`提交失败: ${error}`);
-      }
-      
-    } catch (error) {
-      console.error('Failed to submit frame:', error);
-      alert('提交失败，请重试');
-    }
-  };
 
   const generateAllImages = async () => {
     if (!imageSize) {
@@ -985,29 +923,33 @@ const StoryboardWorkspace: React.FC = () => {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex space-x-2">
-                        <button
-                          onClick={() => generateSingleImage(frame.frame_number)}
-                          disabled={generatingFrames.has(frame.frame_number) || !imageSize}
-                          className="text-blue-500 hover:text-blue-700 disabled:opacity-50"
-                          title="重新生成"
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                        </button>
-                        {frame.generated_image && (
+                        {!frame.generated_image ? (
+                          // Show generate button if no image
+                          <button
+                            onClick={() => generateSingleImage(frame.frame_number)}
+                            disabled={generatingFrames.has(frame.frame_number) || !imageSize}
+                            className="text-blue-500 hover:text-blue-700 disabled:opacity-50"
+                            title="生成图片"
+                          >
+                            <Send className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          // Show regenerate and download if image exists
                           <>
+                            <button
+                              onClick={() => generateSingleImage(frame.frame_number)}
+                              disabled={generatingFrames.has(frame.frame_number) || !imageSize}
+                              className="text-blue-500 hover:text-blue-700 disabled:opacity-50"
+                              title="重新生成"
+                            >
+                              <RefreshCw className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={() => downloadImage(frame.generated_image!, frame.frame_number)}
                               className="text-green-500 hover:text-green-700"
                               title="下载"
                             >
                               <Download className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => submitSingleFrame(frame.frame_number)}
-                              className="text-purple-500 hover:text-purple-700"
-                              title="提交"
-                            >
-                              <Send className="w-4 h-4" />
                             </button>
                           </>
                         )}
