@@ -348,6 +348,17 @@ const StoryboardWorkspace: React.FC = () => {
     setLoading(true);
     
     try {
+      // Convert character mapping from IDs to image URLs
+      const characterImages: Record<string, string> = {};
+      Object.entries(characterMapping).forEach(([scriptChar, charId]) => {
+        if (charId && charId !== 0) {
+          const character = characters.find((c: any) => c.id === charId);
+          if (character && character.image_url) {
+            characterImages[scriptChar] = character.image_url;
+          }
+        }
+      });
+      
       // Create a project first
       const projectResponse = await fetch(`${API_URL}/projects`, {
         method: 'POST',
@@ -358,7 +369,7 @@ const StoryboardWorkspace: React.FC = () => {
         body: JSON.stringify({
           name: `分镜生成 - ${new Date().toLocaleString()}`,
           script_id: parseInt(selectedScriptId),
-          character_mapping: characterMapping,
+          character_mapping: characterImages,  // Send image URLs instead of IDs
           image_size: imageSize.replace(/[\[\]]/g, ''),
           model: model
         })
