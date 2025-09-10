@@ -273,6 +273,9 @@ const StoryboardWorkspace: React.FC = () => {
       processedPrompt += ` ${imageSize}`;
     }
     
+    // Add character name instruction
+    processedPrompt += ' 角色名称就是图片名称';
+    
     return processedPrompt;
   };
 
@@ -285,19 +288,35 @@ const StoryboardWorkspace: React.FC = () => {
     try {
       const processedPrompt = processPrompt(frame);
       
+      // Use originalPrompt if available, otherwise use current prompt
+      const promptToCheck = frame.originalPrompt || frame.prompt;
+      
       // Get all characters in the prompt and their mapped IDs/images
-      const charactersInPrompt = extractCharactersFromPrompt(frame.prompt);
+      const charactersInPrompt = extractCharactersFromPrompt(promptToCheck);
+      console.log('Frame prompt:', promptToCheck);
+      console.log('Extracted characters:', charactersInPrompt);
+      console.log('Character mapping:', characterMapping);
+      
       const characterImages: Record<string, string> = {};
       
-      charactersInPrompt.forEach(scriptChar => {
-        const charId = characterMapping[scriptChar];
+      // Try to get images for all mapped characters
+      Object.entries(characterMapping).forEach(([scriptChar, charId]) => {
+        console.log(`Checking mapping for "${scriptChar}":`, charId);
         if (charId && charId !== 0) {
           const character = characters.find((c: any) => c.id === charId);
           if (character && character.image_url) {
+            // Add the image URL directly
             characterImages[scriptChar] = character.image_url;
+            console.log(`Added character image for "${scriptChar}":`, character.image_url);
           }
         }
       });
+      
+      console.log('Final character_images to send:', characterImages);
+      
+      // Create AbortController with 10 minute timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 minutes
       
       const response = await fetch(`${API_URL}/generation/single`, {
         method: 'POST',
@@ -310,27 +329,70 @@ const StoryboardWorkspace: React.FC = () => {
           character_images: characterImages,  // Send all character images
           image_size: imageSize.replace(/[\[\]]/g, ''),
           model: model
-        })
+          // Remove async_mode - use sync mode
+        }),
+        signal: controller.signal
       });
 
-      if (response.ok) {
-        const data = await response.json();
+      clearTimeout(timeoutId);
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+      const data = await response.json();
+      console.log('Response data:', data);
+      
+      if (response.status === 202 && data.task_id) {
+        // Async mode - poll for status
+        console.log('Generation started, task ID:', data.task_id);
+        pollGenerationStatus(frameNumber, data.task_id);
+        return; // Important: return here to avoid executing finally block
+      } else if (response.status === 200 && data.image_url) {
+        // Sync mode success (unlikely to happen now)
         setScriptFrames(prev => prev.map(f => 
           f.frame_number === frameNumber 
             ? { ...f, generated_image: data.image_url, status: 'completed' }
             : f
         ));
+        // Clear generating state for sync mode
+        setGeneratingFrames(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(frameNumber);
+          return newSet;
+        });
       } else {
-        throw new Error('Generation failed');
+        // Unexpected response
+        const errorMsg = data?.error || `Unexpected response status ${response.status}`;
+        console.error('Generation error:', errorMsg, 'Full response:', data);
+        setScriptFrames(prev => prev.map(f => 
+          f.frame_number === frameNumber 
+            ? { ...f, status: 'failed', error: errorMsg }
+            : f
+        ));
+        // Clear generating state on error
+        setGeneratingFrames(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(frameNumber);
+          return newSet;
+        });
       }
     } catch (error) {
-      console.error('Failed to generate image:', error);
-      setScriptFrames(prev => prev.map(f => 
-        f.frame_number === frameNumber 
-          ? { ...f, status: 'failed', error: 'Generation failed' }
-          : f
-      ));
-    } finally {
+      // Handle timeout and other errors
+      console.error('Caught error in generation:', error);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.error('Request timeout after 10 minutes');
+        setScriptFrames(prev => prev.map(f => 
+          f.frame_number === frameNumber 
+            ? { ...f, status: 'failed', error: '请求超时（10分钟）' }
+            : f
+        ));
+      } else {
+        console.error('Failed to generate image:', error);
+        setScriptFrames(prev => prev.map(f => 
+          f.frame_number === frameNumber 
+            ? { ...f, status: 'failed', error: error instanceof Error ? error.message : 'Generation failed' }
+            : f
+        ));
+      }
+      // Clear generating state on exception
       setGeneratingFrames(prev => {
         const newSet = new Set(prev);
         newSet.delete(frameNumber);
@@ -339,6 +401,95 @@ const StoryboardWorkspace: React.FC = () => {
     }
   };
 
+
+  // Poll for generation status
+  const pollGenerationStatus = async (frameNumber: number, taskId: string) => {
+    const maxAttempts = 60; // Poll for up to 10 minutes (10s intervals)
+    let attempts = 0;
+    
+    const pollInterval = setInterval(async () => {
+      try {
+        attempts++;
+        
+        const response = await fetch(`${API_URL}/generation/status/${taskId}`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${user?.token}`,
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to get status');
+        }
+        
+        const data = await response.json();
+        
+        if (data.task?.status === 'completed' && data.task?.image_url) {
+          // Success!
+          clearInterval(pollInterval);
+          setScriptFrames(prev => prev.map(f => 
+            f.frame_number === frameNumber 
+              ? { ...f, generated_image: data.task.image_url, status: 'completed' }
+              : f
+          ));
+          
+          // Remove from generating set
+          setGeneratingFrames(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(frameNumber);
+            return newSet;
+          });
+        } else if (data.task?.status === 'failed') {
+          // Failed
+          clearInterval(pollInterval);
+          const errorMsg = data.task.error || 'Generation failed';
+          setScriptFrames(prev => prev.map(f => 
+            f.frame_number === frameNumber 
+              ? { ...f, status: 'failed', error: errorMsg }
+              : f
+          ));
+          
+          // Remove from generating set
+          setGeneratingFrames(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(frameNumber);
+            return newSet;
+          });
+        } else if (attempts >= maxAttempts) {
+          // Timeout after max attempts
+          clearInterval(pollInterval);
+          setScriptFrames(prev => prev.map(f => 
+            f.frame_number === frameNumber 
+              ? { ...f, status: 'failed', error: '生成超时（10分钟）' }
+              : f
+          ));
+          
+          // Remove from generating set
+          setGeneratingFrames(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(frameNumber);
+            return newSet;
+          });
+        }
+        // Otherwise continue polling...
+      } catch (error) {
+        clearInterval(pollInterval);
+        console.error('Polling error:', error);
+        setScriptFrames(prev => prev.map(f => 
+          f.frame_number === frameNumber 
+            ? { ...f, status: 'failed', error: '获取状态失败' }
+            : f
+        ));
+        
+        // Remove from generating set
+        setGeneratingFrames(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(frameNumber);
+          return newSet;
+        });
+      }
+    }, 10000); // Poll every 10 seconds
+  };
 
   const generateAllImages = async () => {
     if (!imageSize) {
@@ -487,9 +638,23 @@ const StoryboardWorkspace: React.FC = () => {
 
   // Extract all character names from prompt text
   const extractCharactersFromPrompt = (prompt: string): string[] => {
-    const characterPattern = /角色[A-Z]/g;
-    const matches = prompt.match(characterPattern);
-    return matches ? [...new Set(matches)] : [];
+    const characters: string[] = [];
+    
+    // Match pattern like "角色A", "角色B" etc.
+    const pattern1 = /角色[A-Z]/g;
+    const matches1 = prompt.match(pattern1);
+    if (matches1) {
+      characters.push(...matches1);
+    }
+    
+    // Match pattern like "角色：pic2", "角色：character1" etc.
+    const pattern2 = /角色[：:]\s*(\w+)/g;
+    let match;
+    while ((match = pattern2.exec(prompt)) !== null) {
+      characters.push(match[1]); // Push the character name/id after 角色：
+    }
+    
+    return [...new Set(characters)];
   };
 
   // Get character details with images for a list of character names
