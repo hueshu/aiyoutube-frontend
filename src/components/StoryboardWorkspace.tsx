@@ -614,6 +614,7 @@ const StoryboardWorkspace: React.FC = () => {
                                   )}
                                 </div>
                               ))}
+                            </div>
                           </div>
                         )}
                       </div>
