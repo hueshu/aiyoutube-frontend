@@ -344,6 +344,11 @@ const StoryboardWorkspace: React.FC = () => {
     const frame = scriptFrames.find(f => f.frame_number === frameNumber);
     if (!frame) return;
     
+    if (!frame.generated_image) {
+      alert('请先生成图片');
+      return;
+    }
+    
     try {
       // Get all characters in this frame and their images
       const charactersInPrompt = frame.charactersInFrame || extractCharactersFromPrompt(frame.originalPrompt || frame.prompt);
@@ -359,21 +364,37 @@ const StoryboardWorkspace: React.FC = () => {
         }
       });
       
-      // Prepare submission data
-      const submissionData = {
-        frame_number: frame.frame_number,
-        prompt: frame.prompt,
-        character_images: characterImages,
-        image_size: imageSize?.replace(/[\[\]]/g, ''),
-        model: model,
-        generated_image: frame.generated_image
-      };
+      // Submit to generation API
+      const response = await fetch(`${API_URL}/generation/submit`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user?.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          script_id: parseInt(selectedScriptId),
+          frame_number: frame.frame_number,
+          prompt: frame.prompt,
+          character_images: characterImages,
+          image_size: imageSize?.replace(/[\[\]]/g, ''),
+          model: model,
+          generated_image_url: frame.generated_image,
+          metadata: {
+            original_prompt: frame.originalPrompt || frame.prompt,
+            characters_in_frame: charactersInPrompt
+          }
+        })
+      });
       
-      // Here you would submit to your external service
-      console.log('Submitting frame:', submissionData);
-      
-      // Show success message
-      alert(`帧 ${frameNumber} 已提交`);
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Frame submitted:', result);
+        alert(`帧 ${frameNumber} 提交成功`);
+      } else {
+        const error = await response.text();
+        console.error('Submit failed:', error);
+        alert(`提交失败: ${error}`);
+      }
       
     } catch (error) {
       console.error('Failed to submit frame:', error);
