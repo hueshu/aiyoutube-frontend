@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { API_URL } from '../config/api';
-import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send } from 'lucide-react';
+import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface ScriptFrame {
   id?: number;
@@ -14,9 +14,11 @@ interface ScriptFrame {
   action?: string;
   dialogue?: string;
   notes?: string;
-  generated_image?: string;
+  generated_image?: string;  // Current displayed image
+  generated_images?: string[];  // History of all generated images
   status?: 'pending' | 'generating' | 'completed' | 'failed';
   error?: string;
+  progress?: string; // Add progress field for showing generation status
 }
 
 interface GenerationTask {
@@ -44,6 +46,7 @@ const StoryboardWorkspace: React.FC = () => {
   const [expandedCharPreview, setExpandedCharPreview] = useState<string | null>(null);
   const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({});
   const [originalScriptFrames, setOriginalScriptFrames] = useState<ScriptFrame[]>([]);
+  const [currentImageIndex, setCurrentImageIndex] = useState<Record<number, number>>({});
 
   useEffect(() => {
     // Load scripts and characters on mount
@@ -347,11 +350,19 @@ const StoryboardWorkspace: React.FC = () => {
         return; // Important: return here to avoid executing finally block
       } else if (response.status === 200 && data.image_url) {
         // Sync mode success (unlikely to happen now)
-        setScriptFrames(prev => prev.map(f => 
-          f.frame_number === frameNumber 
-            ? { ...f, generated_image: data.image_url, status: 'completed' }
-            : f
-        ));
+        setScriptFrames(prev => prev.map(f => {
+          if (f.frame_number === frameNumber) {
+            const existingImages = f.generated_images || [];
+            const updatedImages = [...existingImages, data.image_url];
+            return { 
+              ...f, 
+              generated_image: data.image_url,
+              generated_images: updatedImages,
+              status: 'completed' 
+            };
+          }
+          return f;
+        }));
         // Clear generating state for sync mode
         setGeneratingFrames(prev => {
           const newSet = new Set(prev);
@@ -411,6 +422,13 @@ const StoryboardWorkspace: React.FC = () => {
       try {
         attempts++;
         
+        // Update frame with attempt count to show progress
+        setScriptFrames(prev => prev.map(f => 
+          f.frame_number === frameNumber 
+            ? { ...f, status: 'generating', progress: `正在生成... (第${attempts}次检查)` }
+            : f
+        ));
+        
         const response = await fetch(`${API_URL}/generation/status/${taskId}`, {
           method: 'GET',
           headers: {
@@ -423,15 +441,27 @@ const StoryboardWorkspace: React.FC = () => {
         }
         
         const data = await response.json();
+        console.log(`Frame ${frameNumber} status check ${attempts}:`, data.task?.status);
         
         if (data.task?.status === 'completed' && data.task?.image_url) {
           // Success!
           clearInterval(pollInterval);
-          setScriptFrames(prev => prev.map(f => 
-            f.frame_number === frameNumber 
-              ? { ...f, generated_image: data.task.image_url, status: 'completed' }
-              : f
-          ));
+          console.log(`Frame ${frameNumber} completed with image:`, data.task.image_url);
+          setScriptFrames(prev => prev.map(f => {
+            if (f.frame_number === frameNumber) {
+              const existingImages = f.generated_images || [];
+              // Add new image to history
+              const updatedImages = [...existingImages, data.task.image_url];
+              return { 
+                ...f, 
+                generated_image: data.task.image_url,  // Set as current image
+                generated_images: updatedImages,  // Store in history
+                status: 'completed', 
+                progress: undefined 
+              };
+            }
+            return f;
+          }));
           
           // Remove from generating set
           setGeneratingFrames(prev => {
@@ -443,9 +473,10 @@ const StoryboardWorkspace: React.FC = () => {
           // Failed
           clearInterval(pollInterval);
           const errorMsg = data.task.error || 'Generation failed';
+          console.error(`Frame ${frameNumber} failed:`, errorMsg);
           setScriptFrames(prev => prev.map(f => 
             f.frame_number === frameNumber 
-              ? { ...f, status: 'failed', error: errorMsg }
+              ? { ...f, status: 'failed', error: errorMsg, progress: undefined }
               : f
           ));
           
@@ -458,9 +489,10 @@ const StoryboardWorkspace: React.FC = () => {
         } else if (attempts >= maxAttempts) {
           // Timeout after max attempts
           clearInterval(pollInterval);
+          console.error(`Frame ${frameNumber} timeout after ${attempts} attempts`);
           setScriptFrames(prev => prev.map(f => 
             f.frame_number === frameNumber 
-              ? { ...f, status: 'failed', error: '生成超时（10分钟）' }
+              ? { ...f, status: 'failed', error: `生成超时（检查了${attempts}次）`, progress: undefined }
               : f
           ));
           
@@ -477,7 +509,7 @@ const StoryboardWorkspace: React.FC = () => {
         console.error('Polling error:', error);
         setScriptFrames(prev => prev.map(f => 
           f.frame_number === frameNumber 
-            ? { ...f, status: 'failed', error: '获取状态失败' }
+            ? { ...f, status: 'failed', error: '获取状态失败', progress: undefined }
             : f
         ));
         
@@ -1060,23 +1092,58 @@ const StoryboardWorkspace: React.FC = () => {
                     </td>
                     <td className="px-4 py-4">
                       {generatingFrames.has(frame.frame_number) ? (
-                        <div className="flex items-center justify-center w-20 h-20">
+                        <div className="flex flex-col items-center justify-center w-20 h-20">
                           <Loader className="w-6 h-6 animate-spin text-blue-500" />
+                          {frame.progress && (
+                            <div className="text-xs text-gray-500 mt-1 text-center">{frame.progress}</div>
+                          )}
                         </div>
-                      ) : frame.generated_image ? (
-                        <div className="relative group">
-                          <img
-                            src={frame.generated_image}
-                            alt={`Frame ${frame.frame_number}`}
-                            className="w-20 h-20 object-cover rounded cursor-pointer"
-                            onClick={() => setPreviewImage(frame.generated_image!)}
-                          />
-                          <button
-                            onClick={() => setPreviewImage(frame.generated_image!)}
-                            className="absolute inset-0 bg-black bg-opacity-50 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center rounded transition-opacity"
-                          >
-                            <Maximize2 className="w-6 h-6" />
-                          </button>
+                      ) : frame.generated_images && frame.generated_images.length > 0 ? (
+                        <div className="relative">
+                          <div className="relative group">
+                            <img
+                              src={frame.generated_images[currentImageIndex[frame.frame_number] || frame.generated_images.length - 1]}
+                              alt={`Frame ${frame.frame_number}`}
+                              className="w-20 h-20 object-cover rounded cursor-pointer"
+                              onClick={() => setPreviewImage(frame.generated_images![currentImageIndex[frame.frame_number] || frame.generated_images!.length - 1])}
+                            />
+                            <button
+                              onClick={() => setPreviewImage(frame.generated_images![currentImageIndex[frame.frame_number] || frame.generated_images!.length - 1])}
+                              className="absolute inset-0 bg-black bg-opacity-50 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center rounded transition-opacity"
+                            >
+                              <Maximize2 className="w-6 h-6" />
+                            </button>
+                          </div>
+                          {/* Navigation buttons for multiple images */}
+                          {frame.generated_images.length > 1 && (
+                            <div className="flex justify-between mt-1">
+                              <button
+                                onClick={() => {
+                                  const currentIdx = currentImageIndex[frame.frame_number] || frame.generated_images!.length - 1;
+                                  const newIdx = currentIdx > 0 ? currentIdx - 1 : frame.generated_images!.length - 1;
+                                  setCurrentImageIndex(prev => ({ ...prev, [frame.frame_number]: newIdx }));
+                                }}
+                                className="p-1 bg-gray-200 hover:bg-gray-300 rounded-full"
+                                title="上一张"
+                              >
+                                <ChevronLeft className="w-3 h-3" />
+                              </button>
+                              <span className="text-xs text-gray-500">
+                                {(currentImageIndex[frame.frame_number] || frame.generated_images.length - 1) + 1}/{frame.generated_images.length}
+                              </span>
+                              <button
+                                onClick={() => {
+                                  const currentIdx = currentImageIndex[frame.frame_number] || frame.generated_images!.length - 1;
+                                  const newIdx = currentIdx < frame.generated_images!.length - 1 ? currentIdx + 1 : 0;
+                                  setCurrentImageIndex(prev => ({ ...prev, [frame.frame_number]: newIdx }));
+                                }}
+                                className="p-1 bg-gray-200 hover:bg-gray-300 rounded-full"
+                                title="下一张"
+                              >
+                                <ChevronRight className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ) : frame.status === 'failed' ? (
                         <div className="text-red-500 text-xs">生成失败</div>
@@ -1088,7 +1155,7 @@ const StoryboardWorkspace: React.FC = () => {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex space-x-2">
-                        {!frame.generated_image ? (
+                        {!frame.generated_images || frame.generated_images.length === 0 ? (
                           // Show generate button if no image
                           <button
                             onClick={() => generateSingleImage(frame.frame_number)}
@@ -1105,14 +1172,17 @@ const StoryboardWorkspace: React.FC = () => {
                               onClick={() => generateSingleImage(frame.frame_number)}
                               disabled={generatingFrames.has(frame.frame_number) || !imageSize}
                               className="text-blue-500 hover:text-blue-700 disabled:opacity-50"
-                              title="重新生成"
+                              title="重新生成（添加新图片）"
                             >
                               <RefreshCw className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => downloadImage(frame.generated_image!, frame.frame_number)}
+                              onClick={() => {
+                                const currentIdx = currentImageIndex[frame.frame_number] || frame.generated_images!.length - 1;
+                                downloadImage(frame.generated_images![currentIdx], frame.frame_number);
+                              }}
                               className="text-green-500 hover:text-green-700"
-                              title="下载"
+                              title="下载当前图片"
                             >
                               <Download className="w-4 h-4" />
                             </button>
