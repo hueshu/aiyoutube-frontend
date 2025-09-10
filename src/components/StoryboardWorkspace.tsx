@@ -41,6 +41,7 @@ const StoryboardWorkspace: React.FC = () => {
   const [categoryFilters, setCategoryFilters] = useState<Record<string, string>>({});
   const [expandedCharPreview, setExpandedCharPreview] = useState<string | null>(null);
   const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({});
+  const [originalScriptFrames, setOriginalScriptFrames] = useState<ScriptFrame[]>([]);
 
   useEffect(() => {
     // Load scripts and characters on mount
@@ -195,6 +196,8 @@ const StoryboardWorkspace: React.FC = () => {
       }
       
       setScriptFrames(frames);
+      // Save original frames for reset functionality
+      setOriginalScriptFrames(JSON.parse(JSON.stringify(frames)));
       
       // Auto-detect unique characters
       const uniqueChars = [...new Set(frames.map(f => f.character).filter(Boolean))];
@@ -442,6 +445,37 @@ const StoryboardWorkspace: React.FC = () => {
     return character ? character.name : scriptChar;
   };
 
+  // Replace character names in prompts with mapped character names
+  const replaceCharacterNames = () => {
+    const updatedFrames = scriptFrames.map(frame => {
+      let updatedPrompt = frame.prompt;
+      
+      // Replace each mapped character name
+      Object.entries(characterMapping).forEach(([scriptChar, charId]) => {
+        if (charId && charId !== 0) {
+          const character = characters.find((c: any) => c.id === charId);
+          if (character) {
+            // Replace all occurrences of the script character name
+            const regex = new RegExp(scriptChar, 'g');
+            updatedPrompt = updatedPrompt.replace(regex, character.name);
+          }
+        }
+      });
+      
+      return {
+        ...frame,
+        prompt: updatedPrompt
+      };
+    });
+    
+    setScriptFrames(updatedFrames);
+  };
+
+  // Reset character names to original
+  const resetCharacterNames = () => {
+    setScriptFrames(JSON.parse(JSON.stringify(originalScriptFrames)));
+  };
+
   return (
     <div className="space-y-6">
       {/* Script Selection */}
@@ -652,6 +686,20 @@ const StoryboardWorkspace: React.FC = () => {
           <div className="p-4 border-b flex justify-between items-center">
             <h3 className="text-lg font-semibold">分镜表格</h3>
             <div className="space-x-2">
+              <button
+                onClick={replaceCharacterNames}
+                className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
+                title="将脚本中的角色名称替换为映射的角色名称"
+              >
+                替换角色
+              </button>
+              <button
+                onClick={resetCharacterNames}
+                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
+                title="重置为原始的角色名称"
+              >
+                重置角色
+              </button>
               <button
                 onClick={generateAllImages}
                 disabled={loading || !imageSize}
