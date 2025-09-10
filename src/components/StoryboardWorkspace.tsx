@@ -8,6 +8,8 @@ interface ScriptFrame {
   frame_number: number;
   scene_number: number;
   prompt: string;
+  originalPrompt?: string;  // Store original prompt before replacement
+  charactersInFrame?: string[];  // Store characters found in this frame
   character?: string;
   action?: string;
   dialogue?: string;
@@ -184,10 +186,15 @@ const StoryboardWorkspace: React.FC = () => {
           character = '角色C';
         }
         
+        // Extract all characters in this frame
+        const charactersInFrame = extractCharactersFromPrompt(prompt);
+        
         frames.push({
           frame_number: seqNum,
           scene_number: Math.floor((seqNum - 1) / 10) + 1,
           prompt: prompt.trim(),
+          originalPrompt: prompt.trim(),  // Save original prompt
+          charactersInFrame: charactersInFrame,  // Save characters list
           character: character,
           status: 'pending'
         });
@@ -195,9 +202,16 @@ const StoryboardWorkspace: React.FC = () => {
         currentIndex = lineIdx + 1;
       }
       
-      setScriptFrames(frames);
+      // Ensure each frame has originalPrompt saved
+      const framesWithOriginal = frames.map(frame => ({
+        ...frame,
+        originalPrompt: frame.originalPrompt || frame.prompt,
+        charactersInFrame: frame.charactersInFrame || extractCharactersFromPrompt(frame.prompt)
+      }));
+      
+      setScriptFrames(framesWithOriginal);
       // Save original frames for reset functionality
-      setOriginalScriptFrames(JSON.parse(JSON.stringify(frames)));
+      setOriginalScriptFrames(JSON.parse(JSON.stringify(framesWithOriginal)));
       
       // Auto-detect unique characters
       const uniqueChars = [...new Set(frames.map(f => f.character).filter(Boolean))];
@@ -501,7 +515,10 @@ const StoryboardWorkspace: React.FC = () => {
       
       return {
         ...frame,
-        prompt: updatedPrompt
+        prompt: updatedPrompt,
+        // Keep original prompt and characters info
+        originalPrompt: frame.originalPrompt || frame.prompt,
+        charactersInFrame: frame.charactersInFrame
       };
     });
     
@@ -832,10 +849,11 @@ const StoryboardWorkspace: React.FC = () => {
                     </td>
                     <td className="px-4 py-4">
                       {(() => {
-                        const charactersInPrompt = extractCharactersFromPrompt(frame.prompt);
-                        if (charactersInPrompt.length === 0) return <span className="text-sm text-gray-400">-</span>;
+                        // Use saved charactersInFrame or extract from original prompt
+                        const charactersToShow = frame.charactersInFrame || extractCharactersFromPrompt(frame.originalPrompt || frame.prompt);
+                        if (charactersToShow.length === 0) return <span className="text-sm text-gray-400">-</span>;
                         
-                        const characterDetails = getCharacterDetails(charactersInPrompt);
+                        const characterDetails = getCharacterDetails(charactersToShow);
                         return (
                           <div className="flex flex-wrap gap-2">
                             {characterDetails.map((char, idx) => (
