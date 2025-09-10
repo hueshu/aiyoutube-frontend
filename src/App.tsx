@@ -10,6 +10,7 @@ import StoryboardWorkspace from './components/StoryboardWorkspace'
 import ProjectsManager from './components/ProjectsManager'
 import AdminPanel from './components/AdminPanel'
 import Navigation from './components/Navigation'
+import SingleImageGeneration from './pages/SingleImageGeneration'
 
 function App() {
   const { isAuthenticated, checkAuth } = useAuthStore()
@@ -41,6 +42,7 @@ function App() {
             <Route path="/characters" element={<CharacterLibrary />} />
             <Route path="/workspace" element={<StoryboardWorkspace />} />
             <Route path="/projects" element={<ProjectsManager />} />
+            <Route path="/single-image" element={<SingleImageGeneration />} />
             {user?.role === 'admin' && (
               <Route path="/admin" element={<AdminPanel />} />
             )}

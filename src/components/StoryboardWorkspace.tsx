@@ -21,14 +21,6 @@ interface ScriptFrame {
   progress?: string; // Add progress field for showing generation status
 }
 
-interface GenerationTask {
-  id: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  progress: number;
-  total: number;
-}
-
-
 const StoryboardWorkspace: React.FC = () => {
   const { user, scripts, characters, fetchScripts, fetchCharacters } = useStore();
   const [selectedScriptId, setSelectedScriptId] = useState<string>('');
@@ -37,7 +29,7 @@ const StoryboardWorkspace: React.FC = () => {
   const [imageSize, setImageSize] = useState<string>('');
   const [model, setModel] = useState<'sora_image' | 'gemini-2.5-flash-image-preview'>('sora_image');
   const [loading, setLoading] = useState(false);
-  const [currentTask, setCurrentTask] = useState<GenerationTask | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; currentFrame: number } | null>(null);
   const [editingRow, setEditingRow] = useState<number | null>(null);
   const [editedPrompt, setEditedPrompt] = useState<string>('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -283,6 +275,12 @@ const StoryboardWorkspace: React.FC = () => {
   };
 
   const generateSingleImage = async (frameNumber: number) => {
+    // Check if user is logged in
+    if (!user || !user.token) {
+      alert('请先登录');
+      return;
+    }
+
     const frame = scriptFrames.find(f => f.frame_number === frameNumber);
     if (!frame) return;
 
@@ -523,13 +521,70 @@ const StoryboardWorkspace: React.FC = () => {
     }, 10000); // Poll every 10 seconds
   };
 
+  // Helper function to poll for task result
+  const pollForTaskResult = async (taskId: string, maxAttempts = 60): Promise<string | null> => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const response = await fetch(`${API_URL}/generation/status/${taskId}`, {
+          headers: {
+            'Authorization': `Bearer ${user?.token}`
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`Polling attempt ${attempt + 1} for task ${taskId}:`, data);
+          
+          // Handle the nested task object structure
+          const task = data.task || data;
+          
+          if (task.status === 'completed' && task.image_url) {
+            console.log(`Task ${taskId} completed with image:`, task.image_url);
+            return task.image_url;
+          } else if (task.status === 'failed') {
+            console.error(`Task ${taskId} failed:`, task.error);
+            return null;
+          }
+          // If still processing, wait before next attempt
+          console.log(`Task ${taskId} still processing, waiting...`);
+          await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+        } else {
+          console.error(`Failed to poll task ${taskId}: ${response.status}`);
+          const errorText = await response.text();
+          console.error('Error response:', errorText);
+          return null;
+        }
+      } catch (error) {
+        console.error(`Error polling task ${taskId}:`, error);
+        return null;
+      }
+    }
+    console.error(`Task ${taskId} timed out after ${maxAttempts} attempts`);
+    return null;
+  };
+
   const generateAllImages = async () => {
+    // Check if user is logged in
+    if (!user || !user.token) {
+      alert('请先登录');
+      return;
+    }
+
     if (!imageSize) {
       alert('请选择图片尺寸');
       return;
     }
 
+    // Check if there are any frames to generate
+    const framesToGenerate = scriptFrames.filter(f => !f.generated_images || f.generated_images.length === 0);
+    if (framesToGenerate.length === 0) {
+      alert('所有分镜都已生成图片');
+      return;
+    }
+
     setLoading(true);
+    let successCount = 0;
+    let failCount = 0;
     
     try {
       // Convert character mapping from IDs to image URLs
@@ -543,106 +598,163 @@ const StoryboardWorkspace: React.FC = () => {
         }
       });
       
-      // Create a project first
-      const projectResponse = await fetch(`${API_URL}/projects`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${user?.token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          name: `分镜生成 - ${new Date().toLocaleString()}`,
-          script_id: parseInt(selectedScriptId),
-          character_mapping: characterImages,  // Send image URLs instead of IDs
-          image_size: imageSize.replace(/[\[\]]/g, ''),
-          model: model
-        })
-      });
-
-      if (!projectResponse.ok) {
-        throw new Error('Failed to create project');
-      }
-
-      const projectData = await projectResponse.json();
+      console.log('Starting batch generation for', framesToGenerate.length, 'frames');
+      console.log('Character images:', characterImages);
+      console.log('Image size:', imageSize);
+      console.log('Model:', model);
       
-      // Start generation
-      const response = await fetch(`${API_URL}/projects/${projectData.project.id}/generate`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${user?.token}`
+      // Set initial batch progress
+      setBatchProgress({ current: 0, total: framesToGenerate.length, currentFrame: 0 });
+      
+      // Step 1: Submit all generation requests at once
+      console.log('Submitting all generation requests...');
+      const taskPromises = framesToGenerate.map(async (frame) => {
+        try {
+          const processedPrompt = processPrompt(frame);
+          console.log(`Submitting frame ${frame.frame_number} with prompt:`, processedPrompt);
+          
+          setGeneratingFrames(prev => new Set(prev).add(frame.frame_number));
+          setScriptFrames(prev => prev.map(f => 
+            f.frame_number === frame.frame_number 
+              ? { ...f, status: 'generating', progress: '提交中...' }
+              : f
+          ));
+          
+          const response = await fetch(`${API_URL}/generation/single`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${user?.token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              prompt: processedPrompt,
+              character_images: characterImages,
+              image_size: imageSize.replace(/[\[\]]/g, ''),
+              model: model
+            })
+          });
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Failed to submit frame ${frame.frame_number}: ${response.status} - ${errorText}`);
+            throw new Error(`Submit failed: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          if (data.task_id) {
+            console.log(`Frame ${frame.frame_number} submitted with task ID: ${data.task_id}`);
+            setScriptFrames(prev => prev.map(f => 
+              f.frame_number === frame.frame_number 
+                ? { ...f, progress: '已提交，等待生成...' }
+                : f
+            ));
+            return { frame_number: frame.frame_number, task_id: data.task_id };
+          } else {
+            throw new Error('No task_id in response');
+          }
+        } catch (error) {
+          console.error(`Failed to submit frame ${frame.frame_number}:`, error);
+          setScriptFrames(prev => prev.map(f => 
+            f.frame_number === frame.frame_number 
+              ? { ...f, status: 'failed', progress: '提交失败' }
+              : f
+          ));
+          setGeneratingFrames(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(frame.frame_number);
+            return newSet;
+          });
+          return { frame_number: frame.frame_number, error: error };
         }
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setCurrentTask(data.task);
-        pollTaskStatus(data.task.id);
-      } else {
-        throw new Error('Failed to start generation');
+      
+      // Wait for all submissions to complete
+      const submissions = await Promise.all(taskPromises);
+      const successfulSubmissions = submissions.filter(s => s && 'task_id' in s);
+      console.log(`Submitted ${successfulSubmissions.length} of ${framesToGenerate.length} frames`);
+      
+      // Step 2: Poll all tasks in parallel
+      if (successfulSubmissions.length > 0) {
+        console.log('Starting parallel polling for all tasks...');
+        
+        const pollPromises = successfulSubmissions.map(async ({ frame_number, task_id }) => {
+          try {
+            // Poll for this specific task
+            const imageUrl = await pollForTaskResult(task_id);
+            
+            if (imageUrl) {
+              // Update frame with generated image
+              setScriptFrames(prev => prev.map(f => {
+                if (f.frame_number === frame_number) {
+                  const existingImages = f.generated_images || [];
+                  const updatedImages = [...existingImages, imageUrl];
+                  return { 
+                    ...f, 
+                    generated_image: imageUrl,
+                    generated_images: updatedImages,
+                    status: 'completed',
+                    progress: undefined
+                  };
+                }
+                return f;
+              }));
+              
+              // Update progress
+              successCount++;
+              setBatchProgress(prev => prev ? { ...prev, current: successCount } : null);
+              console.log(`Frame ${frame_number} completed (${successCount}/${successfulSubmissions.length})`);
+              
+              setGeneratingFrames(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(frame_number);
+                return newSet;
+              });
+              
+              return { frame_number, success: true };
+            } else {
+              throw new Error('Polling failed - no image URL returned');
+            }
+          } catch (error) {
+            console.error(`Failed to get result for frame ${frame_number}:`, error);
+            failCount++;
+            
+            setScriptFrames(prev => prev.map(f => 
+              f.frame_number === frame_number 
+                ? { ...f, status: 'failed', progress: undefined }
+                : f
+            ));
+            
+            setGeneratingFrames(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(frame_number);
+              return newSet;
+            });
+            
+            return { frame_number, success: false };
+          }
+        });
+        
+        // Wait for all polling to complete
+        await Promise.all(pollPromises);
+      }
+      
+      // Show completion message
+      if (successCount > 0 && failCount === 0) {
+        alert(`批量生成完成！成功生成 ${successCount} 张图片`);
+      } else if (successCount > 0 && failCount > 0) {
+        alert(`批量生成部分完成。成功: ${successCount} 张，失败: ${failCount} 张`);
+      } else if (failCount > 0) {
+        alert(`批量生成失败，请重试`);
       }
     } catch (error) {
       console.error('Failed to start batch generation:', error);
       alert('批量生成失败，请重试');
     } finally {
       setLoading(false);
+      setBatchProgress(null);
     }
   };
 
-  const pollTaskStatus = async (taskId: string) => {
-    const interval = setInterval(async () => {
-      try {
-        const response = await fetch(`${API_URL}/generation/task/${taskId}`, {
-          headers: {
-            'Authorization': `Bearer ${user?.token}`
-          }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setCurrentTask(data.task);
-          
-          if (data.task.status === 'completed') {
-            clearInterval(interval);
-            fetchGenerationResults(taskId);
-          } else if (data.task.status === 'failed') {
-            clearInterval(interval);
-            alert('生成失败');
-          }
-        }
-      } catch (error) {
-        console.error('Failed to poll task status:', error);
-        clearInterval(interval);
-      }
-    }, 2000);
-  };
-
-  const fetchGenerationResults = async (taskId: string) => {
-    try {
-      const response = await fetch(`${API_URL}/generation/results/${taskId}`, {
-        headers: {
-          'Authorization': `Bearer ${user?.token}`
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        const results = data.results || [];
-        
-        // Update frames with generated images
-        setScriptFrames(prev => prev.map(frame => {
-          const result = results.find((r: any) => r.frame_number === frame.frame_number);
-          if (result && result.success) {
-            return { ...frame, generated_image: result.image_url, status: 'completed' };
-          } else if (result && !result.success) {
-            return { ...frame, status: 'failed', error: result.error };
-          }
-          return frame;
-        }));
-      }
-    } catch (error) {
-      console.error('Failed to fetch results:', error);
-    }
-  };
 
   const downloadImage = (imageUrl: string, frameNumber: number) => {
     const a = document.createElement('a');
@@ -968,7 +1080,7 @@ const StoryboardWorkspace: React.FC = () => {
                 disabled={loading || !imageSize}
                 className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50"
               >
-                {loading ? '生成中...' : '批量生成分镜图'}
+                {loading ? (batchProgress ? `生成中 (${batchProgress.current + 1}/${batchProgress.total})` : '生成中...') : '批量生成分镜图'}
               </button>
               {scriptFrames.some(f => f.generated_image) && (
                 <button
@@ -982,18 +1094,21 @@ const StoryboardWorkspace: React.FC = () => {
             </div>
           </div>
           
-          {/* Progress Bar */}
-          {currentTask && (
+          {/* Batch Generation Progress Bar */}
+          {batchProgress && (
             <div className="p-4 border-b bg-blue-50">
               <div className="flex justify-between text-sm mb-2">
-                <span>生成进度</span>
-                <span>{currentTask.progress} / {currentTask.total}</span>
+                <span>批量生成进度 - 正在处理第 {batchProgress.currentFrame} 帧</span>
+                <span>{batchProgress.current + 1} / {batchProgress.total}</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div
                   className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${(currentTask.progress / currentTask.total) * 100}%` }}
+                  style={{ width: `${((batchProgress.current + 1) / batchProgress.total) * 100}%` }}
                 />
+              </div>
+              <div className="text-xs text-gray-500 mt-2">
+                请耐心等待，每张图片生成需要 10-30 秒...
               </div>
             </div>
           )}
