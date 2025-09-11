@@ -232,7 +232,8 @@ const StoryboardWorkspace: React.FC = () => {
     const frame = scriptFrames.find(f => f.frame_number === frameNumber);
     if (frame) {
       setEditingRow(frameNumber);
-      setEditedPrompt(frame.prompt);
+      // Use the display prompt (with character names replaced) for editing
+      setEditedPrompt(getDisplayPrompt(frame));
     }
   };
 
@@ -251,25 +252,40 @@ const StoryboardWorkspace: React.FC = () => {
     setEditedPrompt('');
   };
 
-  const processPrompt = (frame: ScriptFrame): string => {
-    let processedPrompt = frame.prompt;
+  // Get display text with character names replaced
+  const getDisplayPrompt = (frame: ScriptFrame): string => {
+    let displayPrompt = frame.prompt;
+    const promptToCheck = frame.originalPrompt || frame.prompt;
+    const charactersInPrompt = extractCharactersFromPrompt(promptToCheck);
     
-    // Replace character placeholders with actual names
-    if (frame.character && characterMapping[frame.character]) {
-      const character = characters.find((c: any) => c.id === characterMapping[frame.character!]);
-      if (character) {
-        processedPrompt = processedPrompt.replace(/角色[A-Z]/g, character.name);
-        processedPrompt = processedPrompt.replace(frame.character, character.name);
+    charactersInPrompt.forEach(scriptChar => {
+      const charId = characterMapping[scriptChar];
+      if (charId && charId !== 0) {
+        const character = characters.find((c: any) => c.id === charId);
+        if (character && character.name) {
+          // Replace both standalone and after "角色："
+          const regex1 = new RegExp(`\\b${scriptChar}\\b`, 'g');
+          displayPrompt = displayPrompt.replace(regex1, character.name);
+          const regex2 = new RegExp(`(角色[：:])\\s*${scriptChar}\\b`, 'g');
+          displayPrompt = displayPrompt.replace(regex2, `$1${character.name}`);
+        }
       }
-    }
+    });
     
-    // Add image size to prompt
+    return displayPrompt;
+  };
+
+  const processPrompt = (frame: ScriptFrame): string => {
+    // Use the display prompt (with replacements) which may have been edited by user
+    let processedPrompt = getDisplayPrompt(frame);
+    
+    // Add image size to prompt on a new line
     if (imageSize) {
-      processedPrompt += ` ${imageSize}`;
+      processedPrompt += `\n${imageSize}`;
     }
     
-    // Add character name instruction
-    processedPrompt += ' 角色名称就是图片名称';
+    // Add character name instruction on a new line
+    processedPrompt += '\n角色的参考图就是图片文件名与角色名称一样的图片';
     
     return processedPrompt;
   };
@@ -294,30 +310,51 @@ const StoryboardWorkspace: React.FC = () => {
       
       // Get all characters in the prompt and their mapped IDs/images
       const charactersInPrompt = extractCharactersFromPrompt(promptToCheck);
-      console.log('Frame prompt:', promptToCheck);
+      console.log('Original frame prompt:', promptToCheck);
+      console.log('Processed prompt to submit:', processedPrompt);
       console.log('Extracted characters:', charactersInPrompt);
       console.log('Character mapping:', characterMapping);
       
-      const characterImages: Record<string, string> = {};
+      // Collect all character images as an array
+      const characterImageUrls: string[] = [];
       
-      // Try to get images for all mapped characters
-      Object.entries(characterMapping).forEach(([scriptChar, charId]) => {
+      // Only collect images for characters that appear in this frame's prompt
+      charactersInPrompt.forEach(scriptChar => {
+        const charId = characterMapping[scriptChar];
         console.log(`Checking mapping for "${scriptChar}":`, charId);
         if (charId && charId !== 0) {
           const character = characters.find((c: any) => c.id === charId);
           if (character && character.image_url) {
-            // Add the image URL directly
-            characterImages[scriptChar] = character.image_url;
+            // Add the image URL to the array
+            characterImageUrls.push(character.image_url);
             console.log(`Added character image for "${scriptChar}":`, character.image_url);
+          } else {
+            console.log(`No character found with ID ${charId} for "${scriptChar}"`);
           }
+        } else {
+          console.log(`No mapping found for "${scriptChar}"`);
         }
       });
       
-      console.log('Final character_images to send:', characterImages);
+      console.log('Character image URLs to send:', characterImageUrls);
       
       // Create AbortController with 10 minute timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 minutes
+      
+      // Prepare request body based on whether we have character images
+      const requestBody: any = {
+        prompt: processedPrompt,
+        image_size: imageSize,  // Keep brackets for image size
+        model: model
+      };
+      
+      // Add character images if available
+      if (characterImageUrls.length > 0) {
+        requestBody.character_image_urls = characterImageUrls;  // Send as array
+      }
+      
+      console.log('Request body:', requestBody);
       
       const response = await fetch(`${API_URL}/generation/single`, {
         method: 'POST',
@@ -325,13 +362,7 @@ const StoryboardWorkspace: React.FC = () => {
           'Authorization': `Bearer ${user?.token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          prompt: processedPrompt,
-          character_images: characterImages,  // Send all character images
-          image_size: imageSize.replace(/[\[\]]/g, ''),
-          model: model
-          // Remove async_mode - use sync mode
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal
       });
 
@@ -341,13 +372,36 @@ const StoryboardWorkspace: React.FC = () => {
       const data = await response.json();
       console.log('Response data:', data);
       
-      if (response.status === 202 && data.task_id) {
-        // Async mode - poll for status
+      // Check if it's a completed Gemini response (sync mode with image_url and status: 'completed')
+      if (response.status === 200 && data.image_url && data.status === 'completed') {
+        // Gemini sync mode success - directly use the image URL
+        console.log('Gemini generation completed immediately with image:', data.image_url);
+        setScriptFrames(prev => prev.map(f => {
+          if (f.frame_number === frameNumber) {
+            const existingImages = f.generated_images || [];
+            const updatedImages = [...existingImages, data.image_url];
+            return { 
+              ...f, 
+              generated_image: data.image_url,
+              generated_images: updatedImages,
+              status: 'completed' 
+            };
+          }
+          return f;
+        }));
+        // Clear generating state for sync mode
+        setGeneratingFrames(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(frameNumber);
+          return newSet;
+        });
+      } else if (response.status === 202 && data.task_id) {
+        // Async mode - poll for status (Sora and other models)
         console.log('Generation started, task ID:', data.task_id);
         pollGenerationStatus(frameNumber, data.task_id);
         return; // Important: return here to avoid executing finally block
       } else if (response.status === 200 && data.image_url) {
-        // Sync mode success (unlikely to happen now)
+        // Other sync mode success cases
         setScriptFrames(prev => prev.map(f => {
           if (f.frame_number === frameNumber) {
             const existingImages = f.generated_images || [];
@@ -368,7 +422,7 @@ const StoryboardWorkspace: React.FC = () => {
           return newSet;
         });
       } else {
-        // Unexpected response
+        // Unexpected response or error
         const errorMsg = data?.error || `Unexpected response status ${response.status}`;
         console.error('Generation error:', errorMsg, 'Full response:', data);
         setScriptFrames(prev => prev.map(f => 
@@ -583,8 +637,6 @@ const StoryboardWorkspace: React.FC = () => {
     }
 
     setLoading(true);
-    let successCount = 0;
-    let failCount = 0;
     
     try {
       // Convert character mapping from IDs to image URLs
@@ -613,6 +665,21 @@ const StoryboardWorkspace: React.FC = () => {
           const processedPrompt = processPrompt(frame);
           console.log(`Submitting frame ${frame.frame_number} with prompt:`, processedPrompt);
           
+          // Get all character images for this specific frame
+          const promptToCheck = frame.originalPrompt || frame.prompt;
+          const charactersInFrame = extractCharactersFromPrompt(promptToCheck);
+          const frameCharacterImageUrls: string[] = [];
+          
+          // Collect images for all characters in this frame as an array
+          charactersInFrame.forEach(scriptChar => {
+            if (characterImages[scriptChar]) {
+              frameCharacterImageUrls.push(characterImages[scriptChar]);
+              console.log(`Frame ${frame.frame_number} using character image for ${scriptChar}:`, characterImages[scriptChar]);
+            }
+          });
+          
+          console.log(`Frame ${frame.frame_number} character image URLs:`, frameCharacterImageUrls);
+          
           setGeneratingFrames(prev => new Set(prev).add(frame.frame_number));
           setScriptFrames(prev => prev.map(f => 
             f.frame_number === frame.frame_number 
@@ -628,8 +695,8 @@ const StoryboardWorkspace: React.FC = () => {
             },
             body: JSON.stringify({
               prompt: processedPrompt,
-              character_images: characterImages,
-              image_size: imageSize.replace(/[\[\]]/g, ''),
+              character_image_urls: frameCharacterImageUrls.length > 0 ? frameCharacterImageUrls : undefined,  // Send as array if not empty
+              image_size: imageSize,  // Keep brackets
               model: model
             })
           });
@@ -670,59 +737,92 @@ const StoryboardWorkspace: React.FC = () => {
       
       // Wait for all submissions to complete
       const submissions = await Promise.all(taskPromises);
-      const successfulSubmissions = submissions.filter(s => s && 'task_id' in s);
+      const successfulSubmissions = submissions.filter(s => s && 'task_id' in s) as Array<{frame_number: number, task_id: string}>;
       console.log(`Submitted ${successfulSubmissions.length} of ${framesToGenerate.length} frames`);
       
-      // Step 2: Poll all tasks in parallel
+      // Step 2: Poll all tasks using batch status API for better performance
       if (successfulSubmissions.length > 0) {
-        console.log('Starting parallel polling for all tasks...');
+        console.log('Starting batch polling for all tasks...');
         
-        const pollPromises = successfulSubmissions.map(async ({ frame_number, task_id }) => {
-          try {
-            // Poll for this specific task
+        // Use batch polling instead of individual polling
+        await pollBatchTasks(successfulSubmissions);
+      }
+    } catch (error) {
+      console.error('Batch generation error:', error);
+      alert('批量生成失败');
+    } finally {
+      setLoading(false);
+      setBatchProgress(null);
+    }
+  };
+  
+  // New batch polling function
+  const pollBatchTasks = async (submissions: Array<{frame_number: number, task_id: string}>) => {
+    const maxAttempts = 60;
+    let attempts = 0;
+    let completedCount = 0;
+    let failedCount = 0;
+    
+    const taskMap = new Map(submissions.map(s => [s.task_id, s.frame_number]));
+    const pendingTasks = new Set(submissions.map(s => s.task_id));
+    
+    while (pendingTasks.size > 0 && attempts < maxAttempts) {
+      attempts++;
+      console.log(`Batch poll attempt ${attempts}/${maxAttempts}, pending: ${pendingTasks.size}`);
+      
+      try {
+        // Use batch status API
+        const response = await fetch(`${API_URL}/generation/status/batch`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${user?.token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ taskIds: Array.from(pendingTasks) })
+        });
+        
+        if (!response.ok) {
+          // Fall back to individual polling
+          console.warn('Batch API failed, falling back to individual polling');
+          const pollPromises = Array.from(pendingTasks).map(async (task_id) => {
+            const frame_number = taskMap.get(task_id)!;
             const imageUrl = await pollForTaskResult(task_id);
             
-            if (imageUrl) {
-              // Update frame with generated image
-              setScriptFrames(prev => prev.map(f => {
-                if (f.frame_number === frame_number) {
-                  const existingImages = f.generated_images || [];
-                  const updatedImages = [...existingImages, imageUrl];
-                  return { 
-                    ...f, 
-                    generated_image: imageUrl,
-                    generated_images: updatedImages,
-                    status: 'completed',
-                    progress: undefined
-                  };
-                }
-                return f;
-              }));
-              
-              // Update progress
-              successCount++;
-              setBatchProgress(prev => prev ? { ...prev, current: successCount } : null);
-              console.log(`Frame ${frame_number} completed (${successCount}/${successfulSubmissions.length})`);
-              
-              setGeneratingFrames(prev => {
-                const newSet = new Set(prev);
-                newSet.delete(frame_number);
-                return newSet;
-              });
-              
-              return { frame_number, success: true };
-            } else {
-              throw new Error('Polling failed - no image URL returned');
-            }
-          } catch (error) {
-            console.error(`Failed to get result for frame ${frame_number}:`, error);
-            failCount++;
+            return { frame_number, imageUrl };
+          });
+          await Promise.all(pollPromises);
+          return;
+        }
+        
+        // Batch API successful
+        const batchResult = await response.json();
+        console.log(`Batch status: completed=${batchResult.completed}, failed=${batchResult.failed}, processing=${batchResult.processing}`);
+        
+        // Process each task result
+        for (const task of batchResult.tasks) {
+          const frame_number = taskMap.get(task.id);
+          if (!frame_number) continue;
+          
+          if (task.status === 'completed' && task.image_url) {
+            // Update frame with generated image
+            setScriptFrames(prev => prev.map(f => {
+              if (f.frame_number === frame_number) {
+                const existingImages = f.generated_images || [];
+                const updatedImages = [...existingImages, task.image_url];
+                return { 
+                  ...f, 
+                  generated_image: task.image_url,
+                  generated_images: updatedImages,
+                  status: 'completed',
+                  progress: undefined
+                };
+              }
+              return f;
+            }));
             
-            setScriptFrames(prev => prev.map(f => 
-              f.frame_number === frame_number 
-                ? { ...f, status: 'failed', progress: undefined }
-                : f
-            ));
+            completedCount++;
+            setBatchProgress(prev => prev ? { ...prev, current: completedCount } : null);
+            console.log(`Frame ${frame_number} completed (${completedCount}/${submissions.length})`);
             
             setGeneratingFrames(prev => {
               const newSet = new Set(prev);
@@ -730,28 +830,63 @@ const StoryboardWorkspace: React.FC = () => {
               return newSet;
             });
             
-            return { frame_number, success: false };
+            pendingTasks.delete(task.id);
+          } else if (task.status === 'failed') {
+            // Handle failed task
+            setScriptFrames(prev => prev.map(f => 
+              f.frame_number === frame_number 
+                ? { ...f, status: 'failed', progress: task.error || '生成失败' }
+                : f
+            ));
+            
+            failedCount++;
+            
+            setGeneratingFrames(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(frame_number);
+              return newSet;
+            });
+            
+            pendingTasks.delete(task.id);
           }
-        });
+          // If still processing, keep in pendingTasks
+        }
         
-        // Wait for all polling to complete
-        await Promise.all(pollPromises);
+        // Wait before next poll (10 seconds for batch)
+        if (pendingTasks.size > 0) {
+          await new Promise(resolve => setTimeout(resolve, 10000));
+        }
+      } catch (error) {
+        console.error('Batch polling error:', error);
+        await new Promise(resolve => setTimeout(resolve, 10000));
       }
-      
-      // Show completion message
-      if (successCount > 0 && failCount === 0) {
-        alert(`批量生成完成！成功生成 ${successCount} 张图片`);
-      } else if (successCount > 0 && failCount > 0) {
-        alert(`批量生成部分完成。成功: ${successCount} 张，失败: ${failCount} 张`);
-      } else if (failCount > 0) {
-        alert(`批量生成失败，请重试`);
+    }
+    
+    // Handle timeout
+    if (pendingTasks.size > 0) {
+      console.warn(`Batch polling timed out with ${pendingTasks.size} pending tasks`);
+      for (const taskId of pendingTasks) {
+        const frame_number = taskMap.get(taskId)!;
+        setScriptFrames(prev => prev.map(f => 
+          f.frame_number === frame_number 
+            ? { ...f, status: 'failed', progress: '超时' }
+            : f
+        ));
+        setGeneratingFrames(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(frame_number);
+          return newSet;
+        });
       }
-    } catch (error) {
-      console.error('Failed to start batch generation:', error);
-      alert('批量生成失败，请重试');
-    } finally {
-      setLoading(false);
-      setBatchProgress(null);
+    }
+    
+    // Show completion message
+    if (completedCount > 0 && failedCount === 0) {
+      alert(`批量生成完成！成功生成 ${completedCount} 张图片`);
+    } else if (completedCount > 0 && failedCount > 0) {
+      alert(`批量生成部分完成。成功: ${completedCount} 张，失败: ${failedCount} 张`);
+    } else if (failedCount > 0) {
+      alert(`批量生成失败，请重试`);
     }
   };
 
@@ -784,18 +919,22 @@ const StoryboardWorkspace: React.FC = () => {
   const extractCharactersFromPrompt = (prompt: string): string[] => {
     const characters: string[] = [];
     
-    // Match pattern like "角色A", "角色B" etc.
+    // Match pattern like "角色A", "角色B" etc. (including when they appear after 角色：)
     const pattern1 = /角色[A-Z]/g;
     const matches1 = prompt.match(pattern1);
     if (matches1) {
       characters.push(...matches1);
     }
     
-    // Match pattern like "角色：pic2", "角色：character1" etc.
-    const pattern2 = /角色[：:]\s*(\w+)/g;
+    // Also check if there's "角色：角色X" pattern - we already got 角色X above
+    // This pattern is for non-standard character names like "角色：pic2", "角色：character1" 
+    const pattern2 = /角色[：:]\s*([^角色\s]\w*)/g;
     let match;
     while ((match = pattern2.exec(prompt)) !== null) {
-      characters.push(match[1]); // Push the character name/id after 角色：
+      // Only push if it's not already a 角色X pattern (which is handled by pattern1)
+      if (!match[1].startsWith('色')) {
+        characters.push(match[1]); // Push the character name/id after 角色：
+      }
     }
     
     return [...new Set(characters)];
@@ -1159,7 +1298,7 @@ const StoryboardWorkspace: React.FC = () => {
                         <div className="flex items-start space-x-2 group">
                           <div className="flex-1">
                             <div className="text-sm whitespace-pre-wrap break-words leading-relaxed">
-                              {frame.prompt}
+                              {getDisplayPrompt(frame)}
                             </div>
                           </div>
                           <button
