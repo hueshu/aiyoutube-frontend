@@ -899,12 +899,41 @@ const StoryboardWorkspace: React.FC = () => {
   };
 
   const downloadAllImages = () => {
-    const completedFrames = scriptFrames.filter(f => f.generated_image);
+    // Filter frames that have generated images
+    const completedFrames = scriptFrames.filter(f => f.generated_images && f.generated_images.length > 0);
+    
+    // Download all images from all frames
     completedFrames.forEach(frame => {
-      if (frame.generated_image) {
-        downloadImage(frame.generated_image, frame.frame_number);
+      if (frame.generated_images && frame.generated_images.length > 0) {
+        // Download each image with proper naming
+        frame.generated_images.forEach((imageUrl, index) => {
+          // Create a unique filename for each image
+          const filename = frame.generated_images!.length === 1 
+            ? `frame_${frame.frame_number}.png`
+            : `frame_${frame.frame_number}_v${index + 1}.png`;
+          
+          const link = document.createElement('a');
+          link.href = imageUrl;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          
+          // Add delay between downloads to avoid browser blocking
+          setTimeout(() => {}, 100 * index);
+        });
       }
     });
+    
+    // Show feedback to user
+    const totalImages = completedFrames.reduce((sum, frame) => 
+      sum + (frame.generated_images?.length || 0), 0);
+    
+    if (totalImages > 0) {
+      console.log(`Downloading ${totalImages} images from ${completedFrames.length} frames`);
+    } else {
+      alert('没有可下载的图片');
+    }
   };
 
   // Helper function to get character name from mapping

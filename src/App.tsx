@@ -10,15 +10,26 @@ import StoryboardWorkspace from './components/StoryboardWorkspace'
 import ProjectsManager from './components/ProjectsManager'
 import AdminPanel from './components/AdminPanel'
 import Navigation from './components/Navigation'
-import SingleImageGeneration from './pages/SingleImageGeneration'
+import LogsPage from './pages/LogsPage'
 
 function App() {
-  const { isAuthenticated, checkAuth } = useAuthStore()
+  const { isAuthenticated, isLoading, initializeAuth } = useAuthStore()
   const { user } = useStore()
 
   useEffect(() => {
-    checkAuth()
-  }, [checkAuth])
+    initializeAuth()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">加载中...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!isAuthenticated) {
     return (
@@ -42,7 +53,7 @@ function App() {
             <Route path="/characters" element={<CharacterLibrary />} />
             <Route path="/workspace" element={<StoryboardWorkspace />} />
             <Route path="/projects" element={<ProjectsManager />} />
-            <Route path="/single-image" element={<SingleImageGeneration />} />
+            <Route path="/logs" element={<LogsPage />} />
             {user?.role === 'admin' && (
               <Route path="/admin" element={<AdminPanel />} />
             )}

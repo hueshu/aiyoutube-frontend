@@ -113,7 +113,11 @@ export default function CharacterLibrary() {
         await fetchCategories()
         alert('上传成功！')
       } else {
-        alert(responseData.error || '上传失败')
+        if (response.status === 409) {
+          alert('上传失败：已存在同名角色，请使用其他名称')
+        } else {
+          alert(responseData.error || '上传失败')
+        }
       }
     } catch (error) {
       console.error('Upload failed:', error)
@@ -156,15 +160,24 @@ export default function CharacterLibrary() {
         })
       })
       
+      const responseData = await response.json()
+      
       if (response.ok) {
         setShowEditModal(false)
         setEditingCharacter(null)
         await fetchCharacters()
         await fetchCategories()
+        alert('角色更新成功！图片文件名已同步更新')
+      } else {
+        if (response.status === 409) {
+          alert('更新失败：已存在同名角色，请使用其他名称')
+        } else {
+          alert(responseData.error || '更新失败')
+        }
       }
     } catch (error) {
       console.error('Update failed:', error)
-      alert('更新失败')
+      alert('更新失败: ' + (error as Error).message)
     } finally {
       setLoading(false)
     }

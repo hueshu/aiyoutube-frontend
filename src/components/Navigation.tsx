@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store';
 import { useAuthStore } from '../store/authStore';
-import { Home, FileText, Users, Palette, Folder, Shield, LogOut, ImageIcon } from 'lucide-react';
+import { Home, FileText, Users, Palette, Folder, Shield, LogOut, FileSearch } from 'lucide-react';
 
 const Navigation: React.FC = () => {
   const location = useLocation();
@@ -15,8 +15,8 @@ const Navigation: React.FC = () => {
     { path: '/scripts', label: '脚本库', icon: FileText },
     { path: '/characters', label: '角色库', icon: Users },
     { path: '/workspace', label: '工作台', icon: Palette },
-    { path: '/single-image', label: '单图生成', icon: ImageIcon },
     { path: '/projects', label: '项目管理', icon: Folder },
+    { path: '/logs', label: '日志监控', icon: FileSearch },
   ];
 
   if (user?.role === 'admin') {
