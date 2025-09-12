@@ -1265,7 +1265,7 @@ const StoryboardWorkspace: React.FC = () => {
           onClick={() => setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部', selectedTags: [] })}
         >
           <div 
-            className="bg-white rounded-lg shadow-xl max-w-[90vw] max-h-[90vh] w-[1200px] flex"
+            className="bg-white rounded-lg shadow-xl max-w-[90vw] h-[90vh] w-[1200px] flex"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Sidebar Categories */}
