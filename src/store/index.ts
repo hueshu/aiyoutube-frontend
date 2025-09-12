@@ -24,6 +24,7 @@ interface Character {
   name: string
   image_url: string
   category?: string
+  tags?: string[]
   created_at: string
   updated_at: string
   user_id: number

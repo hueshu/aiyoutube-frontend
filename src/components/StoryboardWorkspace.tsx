@@ -67,7 +67,8 @@ const StoryboardWorkspace: React.FC = () => {
     isOpen: boolean;
     scriptChar: string | null;
     selectedCategory: string;
-  }>({ isOpen: false, scriptChar: null, selectedCategory: '全部' });
+    selectedTags: string[];
+  }>({ isOpen: false, scriptChar: null, selectedCategory: '全部', selectedTags: [] });
   const [downloadProgress, setDownloadProgress] = useState<{
     isDownloading: boolean;
     current: number;
@@ -1220,7 +1221,8 @@ const StoryboardWorkspace: React.FC = () => {
                   onClick={() => setCharacterModal({ 
                     isOpen: true, 
                     scriptChar: scriptChar!, 
-                    selectedCategory: '全部' 
+                    selectedCategory: '全部',
+                    selectedTags: []
                   })}
                 >
                   <div className="text-center">
@@ -1260,7 +1262,7 @@ const StoryboardWorkspace: React.FC = () => {
       {characterModal.isOpen && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
-          onClick={() => setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部' })}
+          onClick={() => setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部', selectedTags: [] })}
         >
           <div 
             className="bg-white rounded-lg shadow-xl max-w-[90vw] max-h-[90vh] w-[1200px] flex"
@@ -1297,6 +1299,31 @@ const StoryboardWorkspace: React.FC = () => {
                   </li>
                 ))}
               </ul>
+              
+              {/* Tag Filters */}
+              <h4 className="font-semibold mb-4 text-gray-700 mt-6">标签筛选</h4>
+              <div className="space-y-2">
+                {['男', '女', '小孩', '动物'].map(tag => (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      setCharacterModal(prev => {
+                        const newTags = prev.selectedTags.includes(tag) 
+                          ? prev.selectedTags.filter(t => t !== tag)
+                          : [...prev.selectedTags, tag];
+                        return { ...prev, selectedTags: newTags };
+                      });
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded transition-colors ${
+                      characterModal.selectedTags.includes(tag)
+                        ? 'bg-green-500 text-white' 
+                        : 'hover:bg-gray-200 text-gray-700'
+                    }`}
+                  >
+                    #{tag}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Main Content */}
@@ -1307,7 +1334,7 @@ const StoryboardWorkspace: React.FC = () => {
                   为 <span className="text-blue-600">{characterModal.scriptChar}</span> 选择角色
                 </h3>
                 <button
-                  onClick={() => setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部' })}
+                  onClick={() => setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部', selectedTags: [] })}
                   className="text-gray-500 hover:text-gray-700"
                 >
                   <X className="w-6 h-6" />
@@ -1325,7 +1352,7 @@ const StoryboardWorkspace: React.FC = () => {
                         ...prev,
                         [characterModal.scriptChar!]: 0
                       }));
-                      setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部' });
+                      setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部', selectedTags: [] });
                     }}
                   >
                     <X className="w-8 h-8 text-gray-400 mb-2" />
@@ -1333,10 +1360,27 @@ const StoryboardWorkspace: React.FC = () => {
                   </div>
 
                   {/* Character Options */}
-                  {(characterModal.selectedCategory === '全部' 
-                    ? characters 
-                    : characters.filter((c: any) => (c.category || '未分类') === characterModal.selectedCategory)
-                  ).map((char: any) => (
+                  {(() => {
+                    // Filter by category
+                    let filteredChars = characterModal.selectedCategory === '全部' 
+                      ? characters 
+                      : characters.filter((c: any) => (c.category || '未分类') === characterModal.selectedCategory);
+                    
+                    // Filter by tags if any are selected
+                    if (characterModal.selectedTags.length > 0) {
+                      filteredChars = filteredChars.filter((c: any) => {
+                        try {
+                          const charTags = JSON.parse(c.tags || '[]');
+                          // Character must have at least one of the selected tags
+                          return characterModal.selectedTags.some(tag => charTags.includes(tag));
+                        } catch {
+                          return false;
+                        }
+                      });
+                    }
+                    
+                    return filteredChars;
+                  })().map((char: any) => (
                     <div
                       key={char.id}
                       className={`relative border rounded-lg overflow-hidden transition-all hover:shadow-lg group ${
@@ -1377,7 +1421,7 @@ const StoryboardWorkspace: React.FC = () => {
                             ...prev,
                             [characterModal.scriptChar!]: char.id
                           }));
-                          setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部' });
+                          setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部', selectedTags: [] });
                         }}
                       >
                         <div className="text-sm font-medium text-center truncate">{char.name}</div>
@@ -1904,7 +1948,7 @@ const StoryboardWorkspace: React.FC = () => {
                     ...prev,
                     [characterModal.scriptChar!]: previewCharacter.id
                   }));
-                  setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部' });
+                  setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部', selectedTags: [] });
                   setPreviewImage(null);
                   setPreviewCharacter(null);
                 }}

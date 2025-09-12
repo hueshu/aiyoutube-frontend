@@ -7,6 +7,7 @@ interface Character {
   id: number
   name: string
   category?: string
+  tags?: string[]
   image_url: string
   created_at: string
   updated_at: string
@@ -31,6 +32,11 @@ export default function CharacterLibrary() {
   const [uploadName, setUploadName] = useState('')
   const [uploadCategory, setUploadCategory] = useState('')
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [uploadTags, setUploadTags] = useState<string[]>([])
+  const [customTag, setCustomTag] = useState('')
+  
+  // Preset tags
+  const presetTags = ['男', '女', '小孩', '动物']
 
   useEffect(() => {
     // Wait for user to be available before loading data
@@ -106,12 +112,14 @@ export default function CharacterLibrary() {
     console.log('File:', uploadFile)
     console.log('Name:', uploadName)
     console.log('Category:', uploadCategory || '未分类')
+    console.log('Tags:', uploadTags)
     
     setLoading(true)
     const formData = new FormData()
     formData.append('file', uploadFile)
     formData.append('name', uploadName)
     formData.append('category', uploadCategory || '未分类')
+    formData.append('tags', JSON.stringify(uploadTags))
     
     try {
       console.log('Sending request to:', `${API_URL}/characters`)
@@ -152,6 +160,8 @@ export default function CharacterLibrary() {
     setUploadFile(null)
     setUploadName('')
     setUploadCategory('')
+    setUploadTags([])
+    setCustomTag('')
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl)
       setPreviewUrl(null)
@@ -159,7 +169,11 @@ export default function CharacterLibrary() {
   }
 
   const handleEdit = (character: Character) => {
-    setEditingCharacter(character)
+    const charTags = character.tags ? (typeof character.tags === 'string' ? JSON.parse(character.tags) : character.tags) : []
+    setEditingCharacter({
+      ...character,
+      tags: charTags
+    })
     setShowEditModal(true)
   }
 
@@ -177,7 +191,8 @@ export default function CharacterLibrary() {
         },
         body: JSON.stringify({
           name: editingCharacter.name,
-          category: editingCharacter.category
+          category: editingCharacter.category,
+          tags: editingCharacter.tags || []
         })
       })
       
@@ -261,6 +276,22 @@ export default function CharacterLibrary() {
       setUploadCategory(newCategory)
       setNewCategory('')
       setShowNewCategoryInput(false)
+    }
+  }
+
+  // Tag handling functions
+  const toggleTag = (tag: string) => {
+    if (uploadTags.includes(tag)) {
+      setUploadTags(uploadTags.filter(t => t !== tag))
+    } else {
+      setUploadTags([...uploadTags, tag])
+    }
+  }
+
+  const addCustomTag = () => {
+    if (customTag && !uploadTags.includes(customTag)) {
+      setUploadTags([...uploadTags, customTag])
+      setCustomTag('')
     }
   }
 
@@ -376,11 +407,14 @@ export default function CharacterLibrary() {
                 <label className="block text-sm font-medium mb-2">图片文件 *</label>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/jpg,image/png"
                   onChange={handleFileSelect}
                   required
                   className="w-full"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  仅支持 JPG、JPEG、PNG 格式，最大 5MB
+                </p>
                 {previewUrl && (
                   <div className="mt-2">
                     <img src={previewUrl} alt="预览" className="w-full h-40 object-contain border rounded" />
@@ -453,6 +487,71 @@ export default function CharacterLibrary() {
                 )}
               </div>
               
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2">角色标签</label>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {presetTags.map(tag => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => toggleTag(tag)}
+                        className={`px-3 py-1 rounded-full text-sm ${
+                          uploadTags.includes(tag)
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        #{tag}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  {uploadTags.filter(tag => !presetTags.includes(tag)).length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {uploadTags.filter(tag => !presetTags.includes(tag)).map(tag => (
+                        <span
+                          key={tag}
+                          className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm flex items-center gap-1"
+                        >
+                          #{tag}
+                          <button
+                            type="button"
+                            onClick={() => setUploadTags(uploadTags.filter(t => t !== tag))}
+                            className="hover:text-red-500"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={customTag}
+                      onChange={(e) => setCustomTag(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addCustomTag()
+                        }
+                      }}
+                      placeholder="其他标签（按回车添加）"
+                      className="flex-1 px-3 py-1 border rounded text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={addCustomTag}
+                      className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm"
+                    >
+                      添加
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
               <div className="flex justify-end space-x-2">
                 <button
                   type="button"
@@ -514,6 +613,64 @@ export default function CharacterLibrary() {
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2">角色标签</label>
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {presetTags.map(tag => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => {
+                          const currentTags = editingCharacter.tags || []
+                          if (currentTags.includes(tag)) {
+                            setEditingCharacter({
+                              ...editingCharacter,
+                              tags: currentTags.filter((t: string) => t !== tag)
+                            })
+                          } else {
+                            setEditingCharacter({
+                              ...editingCharacter,
+                              tags: [...currentTags, tag]
+                            })
+                          }
+                        }}
+                        className={`px-3 py-1 rounded-full text-sm ${
+                          (editingCharacter.tags || []).includes(tag)
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        #{tag}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  {editingCharacter.tags && editingCharacter.tags.filter(tag => !presetTags.includes(tag)).length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {editingCharacter.tags.filter((tag: string) => !presetTags.includes(tag)).map((tag: string) => (
+                        <span
+                          key={tag}
+                          className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm flex items-center gap-1"
+                        >
+                          #{tag}
+                          <button
+                            type="button"
+                            onClick={() => setEditingCharacter({
+                              ...editingCharacter,
+                              tags: editingCharacter.tags?.filter((t: string) => t !== tag)
+                            })}
+                            className="hover:text-red-500"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               
               <div className="flex justify-end space-x-2">
