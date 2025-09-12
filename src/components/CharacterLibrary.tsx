@@ -194,7 +194,6 @@ export default function CharacterLibrary() {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          name: editingCharacter.name,
           category: editingCharacter.category,
           tags: editingCharacter.tags || []
         })
@@ -614,9 +613,8 @@ export default function CharacterLibrary() {
                 <input
                   type="text"
                   value={editingCharacter.name}
-                  onChange={(e) => setEditingCharacter({...editingCharacter, name: e.target.value})}
-                  required
-                  className="w-full px-3 py-2 border rounded"
+                  readOnly
+                  className="w-full px-3 py-2 border rounded bg-gray-100 cursor-not-allowed"
                 />
               </div>
               
