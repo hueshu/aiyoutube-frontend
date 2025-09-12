@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { API_URL } from '../config/api';
-import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye } from 'lucide-react';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
 interface ScriptFrame {
   id?: number;
@@ -33,12 +35,20 @@ const StoryboardWorkspace: React.FC = () => {
   const [editingRow, setEditingRow] = useState<number | null>(null);
   const [editedPrompt, setEditedPrompt] = useState<string>('');
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewCharacter, setPreviewCharacter] = useState<any>(null);
   const [generatingFrames, setGeneratingFrames] = useState<Set<number>>(new Set());
-  const [categoryFilters, setCategoryFilters] = useState<Record<string, string>>({});
   const [expandedCharPreview, setExpandedCharPreview] = useState<string | null>(null);
-  const [openDropdowns, setOpenDropdowns] = useState<Record<string, boolean>>({});
   const [originalScriptFrames, setOriginalScriptFrames] = useState<ScriptFrame[]>([]);
-  const [currentImageIndex, setCurrentImageIndex] = useState<Record<number, number>>({});
+  const [characterModal, setCharacterModal] = useState<{
+    isOpen: boolean;
+    scriptChar: string | null;
+    selectedCategory: string;
+  }>({ isOpen: false, scriptChar: null, selectedCategory: '全部' });
+  const [downloadProgress, setDownloadProgress] = useState<{
+    isDownloading: boolean;
+    current: number;
+    total: number;
+  }>({ isDownloading: false, current: 0, total: 0 });
 
   useEffect(() => {
     // Load scripts and characters on mount
@@ -51,20 +61,6 @@ const StoryboardWorkspace: React.FC = () => {
     loadData();
   }, []);
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      if (!target.closest('.character-dropdown')) {
-        setOpenDropdowns({});
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []); // Only run on mount
 
   useEffect(() => {
     if (selectedScriptId && scripts.length > 0) {
@@ -290,9 +286,15 @@ const StoryboardWorkspace: React.FC = () => {
     return processedPrompt;
   };
 
+  // Helper function to get auth token
+  const getAuthToken = () => {
+    return localStorage.getItem('token') || user?.token;
+  };
+
   const generateSingleImage = async (frameNumber: number) => {
     // Check if user is logged in
-    if (!user || !user.token) {
+    const token = getAuthToken();
+    if (!token) {
       alert('请先登录');
       return;
     }
@@ -359,7 +361,7 @@ const StoryboardWorkspace: React.FC = () => {
       const response = await fetch(`${API_URL}/generation/single`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${getAuthToken()}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(requestBody),
@@ -467,7 +469,7 @@ const StoryboardWorkspace: React.FC = () => {
 
   // Poll for generation status
   const pollGenerationStatus = async (frameNumber: number, taskId: string) => {
-    const maxAttempts = 60; // Poll for up to 10 minutes (10s intervals)
+    const maxAttempts = 100; // Poll for up to 100 times
     let attempts = 0;
     
     const pollInterval = setInterval(async () => {
@@ -484,7 +486,7 @@ const StoryboardWorkspace: React.FC = () => {
         const response = await fetch(`${API_URL}/generation/status/${taskId}`, {
           method: 'GET',
           headers: {
-            'Authorization': `Bearer ${user?.token}`,
+            'Authorization': `Bearer ${getAuthToken()}`,
           }
         });
         
@@ -572,16 +574,16 @@ const StoryboardWorkspace: React.FC = () => {
           return newSet;
         });
       }
-    }, 10000); // Poll every 10 seconds
+    }, 5000); // Poll every 5 seconds
   };
 
   // Helper function to poll for task result
-  const pollForTaskResult = async (taskId: string, maxAttempts = 60): Promise<string | null> => {
+  const pollForTaskResult = async (taskId: string, maxAttempts = 100): Promise<string | null> => {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const response = await fetch(`${API_URL}/generation/status/${taskId}`, {
           headers: {
-            'Authorization': `Bearer ${user?.token}`
+            'Authorization': `Bearer ${getAuthToken()}`
           }
         });
         
@@ -619,7 +621,8 @@ const StoryboardWorkspace: React.FC = () => {
 
   const generateAllImages = async () => {
     // Check if user is logged in
-    if (!user || !user.token) {
+    const token = getAuthToken();
+    if (!token) {
       alert('请先登录');
       return;
     }
@@ -690,7 +693,7 @@ const StoryboardWorkspace: React.FC = () => {
           const response = await fetch(`${API_URL}/generation/single`, {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${user?.token}`,
+              'Authorization': `Bearer ${getAuthToken()}`,
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -758,7 +761,7 @@ const StoryboardWorkspace: React.FC = () => {
   
   // New batch polling function
   const pollBatchTasks = async (submissions: Array<{frame_number: number, task_id: string}>) => {
-    const maxAttempts = 60;
+    const maxAttempts = 100;
     let attempts = 0;
     let completedCount = 0;
     let failedCount = 0;
@@ -775,7 +778,7 @@ const StoryboardWorkspace: React.FC = () => {
         const response = await fetch(`${API_URL}/generation/status/batch`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${user?.token}`,
+            'Authorization': `Bearer ${getAuthToken()}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({ taskIds: Array.from(pendingTasks) })
@@ -852,13 +855,13 @@ const StoryboardWorkspace: React.FC = () => {
           // If still processing, keep in pendingTasks
         }
         
-        // Wait before next poll (10 seconds for batch)
+        // Wait before next poll (5 seconds for batch to balance load)
         if (pendingTasks.size > 0) {
-          await new Promise(resolve => setTimeout(resolve, 10000));
+          await new Promise(resolve => setTimeout(resolve, 5000));
         }
       } catch (error) {
         console.error('Batch polling error:', error);
-        await new Promise(resolve => setTimeout(resolve, 10000));
+        await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
     
@@ -891,48 +894,131 @@ const StoryboardWorkspace: React.FC = () => {
   };
 
 
-  const downloadImage = (imageUrl: string, frameNumber: number) => {
-    const a = document.createElement('a');
-    a.href = imageUrl;
-    a.download = `frame_${frameNumber}.jpg`;
-    a.click();
+  const downloadImage = async (imageUrl: string, frameNumber: number) => {
+    try {
+      // Fetch the image as blob
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      
+      // Create blob URL
+      const blobUrl = URL.createObjectURL(blob);
+      
+      // Create download link
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      // Format frame number as 3-digit with leading zeros
+      const paddedFrameNumber = String(frameNumber).padStart(3, '0');
+      a.download = `${paddedFrameNumber}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      // Clean up blob URL
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error('Failed to download image:', error);
+      alert('下载失败，请重试');
+    }
   };
 
-  const downloadAllImages = () => {
+  const downloadAllImages = async () => {
+    // Check if already downloading
+    if (downloadProgress.isDownloading) {
+      return;
+    }
+    
     // Filter frames that have generated images
     const completedFrames = scriptFrames.filter(f => f.generated_images && f.generated_images.length > 0);
     
-    // Download all images from all frames
-    completedFrames.forEach(frame => {
-      if (frame.generated_images && frame.generated_images.length > 0) {
-        // Download each image with proper naming
-        frame.generated_images.forEach((imageUrl, index) => {
-          // Create a unique filename for each image
-          const filename = frame.generated_images!.length === 1 
-            ? `frame_${frame.frame_number}.png`
-            : `frame_${frame.frame_number}_v${index + 1}.png`;
-          
-          const link = document.createElement('a');
-          link.href = imageUrl;
-          link.download = filename;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          
-          // Add delay between downloads to avoid browser blocking
-          setTimeout(() => {}, 100 * index);
-        });
-      }
-    });
-    
-    // Show feedback to user
     const totalImages = completedFrames.reduce((sum, frame) => 
       sum + (frame.generated_images?.length || 0), 0);
     
-    if (totalImages > 0) {
-      console.log(`Downloading ${totalImages} images from ${completedFrames.length} frames`);
-    } else {
+    if (totalImages === 0) {
       alert('没有可下载的图片');
+      return;
+    }
+    
+    // Set downloading state
+    setDownloadProgress({ isDownloading: true, current: 0, total: totalImages });
+    
+    try {
+      // Show loading message
+      console.log(`开始打包 ${totalImages} 张图片...`);
+      
+      // Create a new ZIP file
+      const zip = new JSZip();
+      
+      // Add images to ZIP
+      let processedCount = 0;
+      
+      for (const frame of completedFrames) {
+        if (frame.generated_images && frame.generated_images.length > 0) {
+          for (let index = 0; index < frame.generated_images.length; index++) {
+            const imageUrl = frame.generated_images[index];
+            // Format frame number as 3-digit with leading zeros (001, 002, etc.)
+            const frameNumber = String(frame.frame_number).padStart(3, '0');
+            const filename = frame.generated_images.length === 1 
+              ? `${frameNumber}.jpg`
+              : `${frameNumber}-${index + 1}.jpg`;
+            
+            try {
+              // Fetch the image
+              const response = await fetch(imageUrl);
+              
+              if (!response.ok) {
+                console.error(`Failed to fetch image: ${filename}`);
+                continue;
+              }
+              
+              const blob = await response.blob();
+              
+              // Add to zip
+              zip.file(filename, blob);
+              
+              processedCount++;
+              // Update progress
+              setDownloadProgress({ isDownloading: true, current: processedCount, total: totalImages });
+              console.log(`已处理: ${processedCount}/${totalImages} - ${filename}`);
+            } catch (error) {
+              console.error(`Error processing ${filename}:`, error);
+            }
+          }
+        }
+      }
+      
+      if (processedCount === 0) {
+        alert('无法获取图片，请检查网络连接');
+        return;
+      }
+      
+      // Generate ZIP file
+      console.log('正在生成ZIP文件...');
+      const zipBlob = await zip.generateAsync({ 
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      });
+      
+      // Get current date for filename
+      const date = new Date();
+      const dateStr = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}_${String(date.getHours()).padStart(2, '0')}${String(date.getMinutes()).padStart(2, '0')}`;
+      
+      // Save the ZIP file
+      saveAs(zipBlob, `storyboard_images_${dateStr}.zip`);
+      
+      console.log(`成功打包 ${processedCount} 张图片`);
+      
+      // Show success message
+      setTimeout(() => {
+        alert(`已成功打包 ${processedCount} 张图片并开始下载`);
+      }, 500);
+      
+    } catch (error) {
+      console.error('打包下载失败:', error);
+      alert('打包下载失败，请重试');
+    } finally {
+      // Reset downloading state
+      setDownloadProgress({ isDownloading: false, current: 0, total: 0 });
     }
   };
 
@@ -1079,146 +1165,197 @@ const StoryboardWorkspace: React.FC = () => {
         </div>
       </div>
 
-      {/* Character Mapping */}
+      {/* Character Mapping Cards */}
       {selectedScriptId && scriptFrames.length > 0 && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4">角色映射</h3>
-          <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
             {[...new Set(scriptFrames.map(f => f.character).filter(Boolean))].map(scriptChar => {
-              // Get unique categories for characters
-              const categories = [...new Set(characters.map((c: any) => c.category || '未分类'))];
-              const currentCategory = categoryFilters[scriptChar!] || '全部';
-              
-              // Filter characters by selected category
-              const filteredCharacters = currentCategory === '全部' 
-                ? characters 
-                : characters.filter((c: any) => (c.category || '未分类') === currentCategory);
-              
               const selectedCharacter = characters.find((c: any) => c.id === characterMapping[scriptChar!]);
               
               return (
-                <div key={scriptChar} className="border rounded-lg p-4 hover:bg-gray-50">
-                  <div className="flex items-start space-x-4">
-                    {/* Script Character Name */}
-                    <div className="flex-shrink-0 w-24">
-                      <span className="text-sm font-medium text-gray-700">{scriptChar}</span>
-                    </div>
-                    
-                    {/* Category Filter */}
-                    <div className="flex-1 space-y-2">
-                      <div className="flex items-center space-x-2">
-                        <label className="text-xs text-gray-500">分类：</label>
-                        <select
-                          value={currentCategory}
-                          onChange={(e) => setCategoryFilters(prev => ({
-                            ...prev,
-                            [scriptChar!]: e.target.value
-                          }))}
-                          className="text-sm border rounded px-2 py-1"
-                        >
-                          <option value="全部">全部分类</option>
-                          {categories.map(cat => (
-                            <option key={cat} value={cat}>{cat}</option>
-                          ))}
-                        </select>
-                      </div>
-                      
-                      {/* Character Selection with Preview */}
-                      <div className="relative character-dropdown">
-                        <button
-                          type="button"
-                          onClick={() => setOpenDropdowns(prev => ({
-                            ...prev,
-                            [scriptChar!]: !prev[scriptChar!]
-                          }))}
-                          className="w-full border rounded px-3 py-2 text-left flex items-center justify-between bg-white hover:bg-gray-50"
-                        >
-                          <span>
-                            {selectedCharacter ? selectedCharacter.name : '选择角色'}
-                          </span>
-                          <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </button>
-                        
-                        {/* Custom Dropdown with Images - Horizontal Grid Layout */}
-                        {openDropdowns[scriptChar!] && (
-                          <div className="absolute z-10 mt-1 min-w-[400px] bg-white border rounded-md shadow-lg max-h-80 overflow-y-auto p-2">
-                            <div
-                              className="mb-2 px-3 py-2 hover:bg-gray-100 cursor-pointer rounded"
-                              onClick={() => {
-                                setCharacterMapping(prev => ({
-                                  ...prev,
-                                  [scriptChar!]: 0
-                                }));
-                                setOpenDropdowns(prev => ({
-                                  ...prev,
-                                  [scriptChar!]: false
-                                }));
-                              }}
-                            >
-                              <span className="text-gray-500">清除选择</span>
-                            </div>
-                            <div className="grid grid-cols-4 gap-2">
-                              {filteredCharacters.map((char: any) => (
-                                <div
-                                  key={char.id}
-                                  className="flex flex-col items-center p-2 hover:bg-gray-100 cursor-pointer rounded"
-                                  onClick={() => {
-                                    setCharacterMapping(prev => ({
-                                      ...prev,
-                                      [scriptChar!]: char.id
-                                    }));
-                                    setOpenDropdowns(prev => ({
-                                      ...prev,
-                                      [scriptChar!]: false
-                                    }));
-                                  }}
-                                >
-                                  <img
-                                    src={char.image_url}
-                                    alt={char.name}
-                                    className="w-16 h-20 object-cover rounded mb-1"
-                                    style={{ objectFit: 'contain', backgroundColor: '#f9fafb' }}
-                                  />
-                                  <div className="text-xs text-center font-medium truncate w-full">
-                                    {char.name}
-                                  </div>
-                                  {char.category && (
-                                    <div className="text-xs text-gray-400 text-center truncate w-full">
-                                      {char.category}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                <div 
+                  key={scriptChar} 
+                  className="border rounded-lg p-2 cursor-pointer hover:shadow-lg transition-shadow bg-gradient-to-br from-gray-50 to-white"
+                  onClick={() => setCharacterModal({ 
+                    isOpen: true, 
+                    scriptChar: scriptChar!, 
+                    selectedCategory: '全部' 
+                  })}
+                >
+                  <div className="text-center">
+                    <div className="text-sm font-semibold text-gray-700 mb-1">{scriptChar}</div>
+                    {selectedCharacter ? (
+                      <div>
+                        <img
+                          src={selectedCharacter.image_url}
+                          alt={selectedCharacter.name}
+                          className="w-24 h-32 object-cover rounded mx-auto shadow-md"
+                          style={{ objectFit: 'contain', backgroundColor: '#f9fafb' }}
+                        />
+                        <p className="text-xs font-medium text-gray-600 mt-1">{selectedCharacter.name}</p>
+                        {selectedCharacter.category && (
+                          <p className="text-xs text-gray-400">{selectedCharacter.category}</p>
                         )}
                       </div>
-                    </div>
-                    
-                    {/* Character Preview */}
-                    {selectedCharacter && (
-                      <div className="flex-shrink-0">
-                        <div className="relative group">
-                          <img
-                            src={selectedCharacter.image_url}
-                            alt={selectedCharacter.name}
-                            className="w-20 h-28 object-cover rounded cursor-pointer hover:shadow-lg transition-shadow"
-                            style={{ objectFit: 'contain', backgroundColor: '#f3f4f6' }}
-                            onClick={() => setExpandedCharPreview(selectedCharacter.image_url)}
-                          />
-                          <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-opacity flex items-center justify-center opacity-0 group-hover:opacity-100 rounded">
-                            <Maximize2 className="w-6 h-6 text-white" />
-                          </div>
+                    ) : (
+                      <div className="w-24 h-32 bg-gray-200 rounded mx-auto flex items-center justify-center">
+                        <div className="text-center">
+                          <svg className="w-8 h-8 text-gray-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                          </svg>
+                          <p className="text-xs text-gray-500">点击选择</p>
                         </div>
-                        <p className="text-xs text-center mt-1 text-gray-600">{selectedCharacter.name}</p>
                       </div>
                     )}
                   </div>
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Character Selection Modal */}
+      {characterModal.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+          onClick={() => setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部' })}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-[90vw] max-h-[90vh] w-[1200px] flex"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Sidebar Categories */}
+            <div className="w-48 bg-gray-50 p-4 rounded-l-lg border-r">
+              <h4 className="font-semibold mb-4 text-gray-700">分类</h4>
+              <ul className="space-y-2">
+                <li>
+                  <button
+                    onClick={() => setCharacterModal(prev => ({ ...prev, selectedCategory: '全部' }))}
+                    className={`w-full text-left px-3 py-2 rounded transition-colors ${
+                      characterModal.selectedCategory === '全部' 
+                        ? 'bg-blue-500 text-white' 
+                        : 'hover:bg-gray-200 text-gray-700'
+                    }`}
+                  >
+                    全部分类
+                  </button>
+                </li>
+                {[...new Set(characters.map((c: any) => c.category || '未分类'))].map(category => (
+                  <li key={category}>
+                    <button
+                      onClick={() => setCharacterModal(prev => ({ ...prev, selectedCategory: category }))}
+                      className={`w-full text-left px-3 py-2 rounded transition-colors ${
+                        characterModal.selectedCategory === category 
+                          ? 'bg-blue-500 text-white' 
+                          : 'hover:bg-gray-200 text-gray-700'
+                      }`}
+                    >
+                      {category}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Main Content */}
+            <div className="flex-1 flex flex-col">
+              {/* Header */}
+              <div className="p-4 border-b flex justify-between items-center">
+                <h3 className="text-lg font-semibold">
+                  为 <span className="text-blue-600">{characterModal.scriptChar}</span> 选择角色
+                </h3>
+                <button
+                  onClick={() => setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部' })}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Character Grid */}
+              <div className="flex-1 overflow-y-auto p-6">
+                <div className="grid grid-cols-6 gap-2">
+                  {/* Clear Selection Option */}
+                  <div
+                    className="border-2 border-dashed border-gray-300 rounded-lg p-4 cursor-pointer hover:border-gray-400 transition-colors flex flex-col items-center justify-center h-[180px]"
+                    onClick={() => {
+                      setCharacterMapping(prev => ({
+                        ...prev,
+                        [characterModal.scriptChar!]: 0
+                      }));
+                      setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部' });
+                    }}
+                  >
+                    <X className="w-8 h-8 text-gray-400 mb-2" />
+                    <span className="text-sm text-gray-500">清除选择</span>
+                  </div>
+
+                  {/* Character Options */}
+                  {(characterModal.selectedCategory === '全部' 
+                    ? characters 
+                    : characters.filter((c: any) => (c.category || '未分类') === characterModal.selectedCategory)
+                  ).map((char: any) => (
+                    <div
+                      key={char.id}
+                      className={`relative border rounded-lg overflow-hidden transition-all hover:shadow-lg group ${
+                        characterMapping[characterModal.scriptChar!] === char.id 
+                          ? 'ring-2 ring-blue-500 bg-blue-50' 
+                          : 'hover:bg-gray-50'
+                      }`}
+                    >
+                      {/* Top half - Preview */}
+                      <div 
+                        className="relative cursor-pointer"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPreviewImage(char.image_url);
+                          setPreviewCharacter(char);
+                        }}
+                      >
+                        <img
+                          src={char.image_url}
+                          alt={char.name}
+                          className="w-full h-32 object-cover"
+                          style={{ objectFit: 'contain', backgroundColor: '#f9fafb' }}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-b from-black/0 via-transparent to-black/0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <div className="bg-black/60 px-3 py-1 rounded-full text-white text-xs flex items-center gap-1">
+                            <Eye className="w-3 h-3" />
+                            预览
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Bottom half - Select and Info */}
+                      <div 
+                        className="p-2 cursor-pointer hover:bg-blue-100 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCharacterMapping(prev => ({
+                            ...prev,
+                            [characterModal.scriptChar!]: char.id
+                          }));
+                          setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部' });
+                        }}
+                      >
+                        <div className="text-sm font-medium text-center truncate">{char.name}</div>
+                        {char.category && (
+                          <div className="text-xs text-gray-400 text-center truncate mt-1">{char.category}</div>
+                        )}
+                        <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="bg-blue-500 text-white text-xs py-1 px-2 rounded text-center flex items-center justify-center gap-1">
+                            <Check className="w-3 h-3" />
+                            选择
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1253,10 +1390,11 @@ const StoryboardWorkspace: React.FC = () => {
               {scriptFrames.some(f => f.generated_image) && (
                 <button
                   onClick={downloadAllImages}
-                  className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                  disabled={downloadProgress.isDownloading}
+                  className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Download className="w-4 h-4 inline mr-2" />
-                  下载全部
+                  {downloadProgress.isDownloading ? '打包中...' : '下载全部'}
                 </button>
               )}
             </div>
@@ -1347,9 +1485,9 @@ const StoryboardWorkspace: React.FC = () => {
                         
                         const characterDetails = getCharacterDetails(charactersToShow);
                         return (
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-wrap">
                             {characterDetails.map((char, idx) => (
-                              <div key={idx} className="flex flex-col items-center">
+                              <div key={idx} className="flex flex-col items-center mr-1">
                                 {char.image ? (
                                   <img
                                     src={char.image}
@@ -1374,58 +1512,51 @@ const StoryboardWorkspace: React.FC = () => {
                       })()}
                     </td>
                     <td className="px-4 py-4">
-                      {generatingFrames.has(frame.frame_number) ? (
+                      {frame.generated_images && frame.generated_images.length > 0 ? (
+                        <div className="flex flex-col">
+                          <div className="flex flex-wrap">
+                            {frame.generated_images.map((imageUrl, index) => (
+                              <div key={index} className="relative group">
+                                <img
+                                  src={imageUrl}
+                                  alt={`Frame ${frame.frame_number} - ${index + 1}`}
+                                  className="w-20 h-20 object-cover rounded cursor-pointer hover:shadow-lg transition-shadow"
+                                  onClick={() => setPreviewImage(imageUrl)}
+                                />
+                                <button
+                                  onClick={() => setPreviewImage(imageUrl)}
+                                  className="absolute inset-0 bg-black bg-opacity-50 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center rounded transition-opacity"
+                                >
+                                  <Maximize2 className="w-6 h-6" />
+                                </button>
+                                {/* Download button in bottom-right corner */}
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    await downloadImage(imageUrl, frame.frame_number);
+                                  }}
+                                  className="absolute bottom-1 right-1 bg-green-500 hover:bg-green-600 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                  title="下载图片"
+                                >
+                                  <Download className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          {generatingFrames.has(frame.frame_number) && (
+                            <div className="flex items-center justify-center mt-2">
+                              <Loader className="w-6 h-6 animate-spin text-blue-500" />
+                              {frame.progress && (
+                                <span className="text-xs text-gray-500 ml-2">{frame.progress}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : generatingFrames.has(frame.frame_number) ? (
                         <div className="flex flex-col items-center justify-center w-20 h-20">
                           <Loader className="w-6 h-6 animate-spin text-blue-500" />
                           {frame.progress && (
                             <div className="text-xs text-gray-500 mt-1 text-center">{frame.progress}</div>
-                          )}
-                        </div>
-                      ) : frame.generated_images && frame.generated_images.length > 0 ? (
-                        <div className="relative">
-                          <div className="relative group">
-                            <img
-                              src={frame.generated_images[currentImageIndex[frame.frame_number] || frame.generated_images.length - 1]}
-                              alt={`Frame ${frame.frame_number}`}
-                              className="w-20 h-20 object-cover rounded cursor-pointer"
-                              onClick={() => setPreviewImage(frame.generated_images![currentImageIndex[frame.frame_number] || frame.generated_images!.length - 1])}
-                            />
-                            <button
-                              onClick={() => setPreviewImage(frame.generated_images![currentImageIndex[frame.frame_number] || frame.generated_images!.length - 1])}
-                              className="absolute inset-0 bg-black bg-opacity-50 text-white opacity-0 group-hover:opacity-100 flex items-center justify-center rounded transition-opacity"
-                            >
-                              <Maximize2 className="w-6 h-6" />
-                            </button>
-                          </div>
-                          {/* Navigation buttons for multiple images */}
-                          {frame.generated_images.length > 1 && (
-                            <div className="flex justify-between mt-1">
-                              <button
-                                onClick={() => {
-                                  const currentIdx = currentImageIndex[frame.frame_number] || frame.generated_images!.length - 1;
-                                  const newIdx = currentIdx > 0 ? currentIdx - 1 : frame.generated_images!.length - 1;
-                                  setCurrentImageIndex(prev => ({ ...prev, [frame.frame_number]: newIdx }));
-                                }}
-                                className="p-1 bg-gray-200 hover:bg-gray-300 rounded-full"
-                                title="上一张"
-                              >
-                                <ChevronLeft className="w-3 h-3" />
-                              </button>
-                              <span className="text-xs text-gray-500">
-                                {(currentImageIndex[frame.frame_number] || frame.generated_images.length - 1) + 1}/{frame.generated_images.length}
-                              </span>
-                              <button
-                                onClick={() => {
-                                  const currentIdx = currentImageIndex[frame.frame_number] || frame.generated_images!.length - 1;
-                                  const newIdx = currentIdx < frame.generated_images!.length - 1 ? currentIdx + 1 : 0;
-                                  setCurrentImageIndex(prev => ({ ...prev, [frame.frame_number]: newIdx }));
-                                }}
-                                className="p-1 bg-gray-200 hover:bg-gray-300 rounded-full"
-                                title="下一张"
-                              >
-                                <ChevronRight className="w-3 h-3" />
-                              </button>
-                            </div>
                           )}
                         </div>
                       ) : frame.status === 'failed' ? (
@@ -1449,27 +1580,15 @@ const StoryboardWorkspace: React.FC = () => {
                             <Send className="w-4 h-4" />
                           </button>
                         ) : (
-                          // Show regenerate and download if image exists
-                          <>
-                            <button
-                              onClick={() => generateSingleImage(frame.frame_number)}
-                              disabled={generatingFrames.has(frame.frame_number) || !imageSize}
-                              className="text-blue-500 hover:text-blue-700 disabled:opacity-50"
-                              title="重新生成（添加新图片）"
-                            >
-                              <RefreshCw className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                const currentIdx = currentImageIndex[frame.frame_number] || frame.generated_images!.length - 1;
-                                downloadImage(frame.generated_images![currentIdx], frame.frame_number);
-                              }}
-                              className="text-green-500 hover:text-green-700"
-                              title="下载当前图片"
-                            >
-                              <Download className="w-4 h-4" />
-                            </button>
-                          </>
+                          // Show regenerate button if image exists
+                          <button
+                            onClick={() => generateSingleImage(frame.frame_number)}
+                            disabled={generatingFrames.has(frame.frame_number) || !imageSize}
+                            className="text-blue-500 hover:text-blue-700 disabled:opacity-50"
+                            title="重新生成（添加新图片）"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
                         )}
                       </div>
                     </td>
@@ -1481,24 +1600,74 @@ const StoryboardWorkspace: React.FC = () => {
         </div>
       )}
 
+      {/* Download Progress Modal */}
+      {downloadProgress.isDownloading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-4">正在打包图片...</h3>
+            <div className="mb-4">
+              <div className="flex justify-between text-sm mb-2">
+                <span>处理进度</span>
+                <span>{downloadProgress.current} / {downloadProgress.total}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${(downloadProgress.current / downloadProgress.total) * 100}%` }}
+                />
+              </div>
+            </div>
+            <p className="text-sm text-gray-600 text-center">
+              请稍候，正在处理图片并生成压缩包...
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Image Preview Modal */}
       {previewImage && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4"
-          onClick={() => setPreviewImage(null)}
+          className="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-8"
+          onClick={() => {
+            setPreviewImage(null);
+            setPreviewCharacter(null);
+          }}
         >
-          <div className="relative max-w-4xl max-h-full">
+          <div className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center justify-center">
             <img
               src={previewImage}
               alt="Preview"
-              className="max-w-full max-h-full object-contain"
+              className="max-w-full max-h-[85vh] object-contain"
+              onClick={(e) => e.stopPropagation()}
             />
             <button
-              onClick={() => setPreviewImage(null)}
+              onClick={() => {
+                setPreviewImage(null);
+                setPreviewCharacter(null);
+              }}
               className="absolute top-4 right-4 text-white bg-black bg-opacity-50 rounded-full p-2 hover:bg-opacity-75"
             >
               <X className="w-6 h-6" />
             </button>
+            {/* Show select button if previewing from character modal */}
+            {previewCharacter && characterModal.isOpen && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCharacterMapping(prev => ({
+                    ...prev,
+                    [characterModal.scriptChar!]: previewCharacter.id
+                  }));
+                  setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部' });
+                  setPreviewImage(null);
+                  setPreviewCharacter(null);
+                }}
+                className="mt-4 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+              >
+                <Check className="w-5 h-5" />
+                选用这个图
+              </button>
+            )}
           </div>
         </div>
       )}

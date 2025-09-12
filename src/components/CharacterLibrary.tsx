@@ -33,23 +33,44 @@ export default function CharacterLibrary() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   useEffect(() => {
-    // Load data immediately
+    // Wait for user to be available before loading data
+    if (!user) {
+      console.log('Waiting for user authentication...')
+      // Check if we have a token in localStorage
+      const token = localStorage.getItem('token')
+      if (!token) {
+        setInitialLoading(false) // Stop loading if no auth
+        return
+      }
+    }
+    
     const loadData = async () => {
       setInitialLoading(true)
-      await Promise.all([
-        fetchCharacters(),
-        fetchCategories()
-      ])
-      setInitialLoading(false)
+      try {
+        await Promise.all([
+          fetchCharacters(),
+          fetchCategories()
+        ])
+      } catch (error) {
+        console.error('Failed to load data:', error)
+      } finally {
+        setInitialLoading(false)
+      }
     }
     loadData()
-  }, [])
+  }, [user]) // Add user as dependency
 
   const fetchCategories = async () => {
     try {
+      const token = localStorage.getItem('token') || user?.token
+      if (!token) {
+        console.log('No token available for fetching categories')
+        return
+      }
+      
       const response = await fetch(`${API_URL}/characters/categories/list`, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${token}`
         }
       })
       if (response.ok) {

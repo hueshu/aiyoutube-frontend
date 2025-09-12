@@ -50,9 +50,10 @@ export const useStore = create<Store>((set, get) => ({
   setCharacters: (characters) => set({ characters }),
   
   fetchScripts: async () => {
-    const { user } = get()
-    if (!user) {
-      console.log('No user, cannot fetch scripts');
+    // Try to get token from localStorage first, then from user
+    const token = localStorage.getItem('token') || get().user?.token
+    if (!token) {
+      console.log('No token available, cannot fetch scripts');
       return
     }
     
@@ -60,7 +61,7 @@ export const useStore = create<Store>((set, get) => ({
       console.log('Fetching scripts from:', `${API_URL}/scripts`);
       const response = await fetch(`${API_URL}/scripts`, {
         headers: {
-          'Authorization': `Bearer ${user.token}`
+          'Authorization': `Bearer ${token}`
         }
       })
       
@@ -80,9 +81,10 @@ export const useStore = create<Store>((set, get) => ({
   },
   
   fetchCharacters: async () => {
-    const { user } = get()
-    if (!user) {
-      console.log('No user, cannot fetch characters')
+    // Try to get token from localStorage first, then from user
+    const token = localStorage.getItem('token') || get().user?.token
+    if (!token) {
+      console.log('No token available, cannot fetch characters')
       return
     }
     
@@ -90,7 +92,7 @@ export const useStore = create<Store>((set, get) => ({
       console.log('Fetching characters from:', `${API_URL}/characters`)
       const response = await fetch(`${API_URL}/characters`, {
         headers: {
-          'Authorization': `Bearer ${user.token}`
+          'Authorization': `Bearer ${token}`
         }
       })
       
