@@ -1299,31 +1299,6 @@ const StoryboardWorkspace: React.FC = () => {
                   </li>
                 ))}
               </ul>
-              
-              {/* Tag Filters */}
-              <h4 className="font-semibold mb-4 text-gray-700 mt-6">标签筛选</h4>
-              <div className="space-y-2">
-                {['男', '女', '小孩', '动物'].map(tag => (
-                  <button
-                    key={tag}
-                    onClick={() => {
-                      setCharacterModal(prev => {
-                        const newTags = prev.selectedTags.includes(tag) 
-                          ? prev.selectedTags.filter(t => t !== tag)
-                          : [...prev.selectedTags, tag];
-                        return { ...prev, selectedTags: newTags };
-                      });
-                    }}
-                    className={`w-full text-left px-3 py-2 rounded transition-colors ${
-                      characterModal.selectedTags.includes(tag)
-                        ? 'bg-green-500 text-white' 
-                        : 'hover:bg-gray-200 text-gray-700'
-                    }`}
-                  >
-                    #{tag}
-                  </button>
-                ))}
-              </div>
             </div>
 
             {/* Main Content */}
@@ -1339,6 +1314,80 @@ const StoryboardWorkspace: React.FC = () => {
                 >
                   <X className="w-6 h-6" />
                 </button>
+              </div>
+
+              {/* Tag Filters */}
+              <div className="px-6 py-3 border-b bg-gray-50">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium text-gray-700">标签筛选：</span>
+                  {/* Preset tags */}
+                  {['男', '女', '小孩', '动物'].map(tag => (
+                    <button
+                      key={tag}
+                      onClick={() => {
+                        setCharacterModal(prev => {
+                          const newTags = prev.selectedTags.includes(tag) 
+                            ? prev.selectedTags.filter(t => t !== tag)
+                            : [...prev.selectedTags, tag];
+                          return { ...prev, selectedTags: newTags };
+                        });
+                      }}
+                      className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                        characterModal.selectedTags.includes(tag)
+                          ? 'bg-green-500 text-white' 
+                          : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                      }`}
+                    >
+                      #{tag}
+                    </button>
+                  ))}
+                  
+                  {/* Custom tags from all characters */}
+                  {(() => {
+                    const allCustomTags = new Set<string>();
+                    characters.forEach((char: any) => {
+                      if (char.tags) {
+                        try {
+                          const tags = JSON.parse(char.tags);
+                          tags.forEach((tag: string) => {
+                            if (!['男', '女', '小孩', '动物'].includes(tag)) {
+                              allCustomTags.add(tag);
+                            }
+                          });
+                        } catch {}
+                      }
+                    });
+                    return Array.from(allCustomTags).map(tag => (
+                      <button
+                        key={tag}
+                        onClick={() => {
+                          setCharacterModal(prev => {
+                            const newTags = prev.selectedTags.includes(tag) 
+                              ? prev.selectedTags.filter(t => t !== tag)
+                              : [...prev.selectedTags, tag];
+                            return { ...prev, selectedTags: newTags };
+                          });
+                        }}
+                        className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                          characterModal.selectedTags.includes(tag)
+                            ? 'bg-blue-500 text-white' 
+                            : 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                        }`}
+                      >
+                        #{tag}
+                      </button>
+                    ));
+                  })()}
+                  
+                  {characterModal.selectedTags.length > 0 && (
+                    <button
+                      onClick={() => setCharacterModal(prev => ({ ...prev, selectedTags: [] }))}
+                      className="ml-2 text-sm text-gray-500 hover:text-gray-700"
+                    >
+                      清除筛选
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Character Grid */}
