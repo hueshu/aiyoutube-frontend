@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { API_URL } from '../config/api';
-import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye } from 'lucide-react';
+import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye, Palette, Info } from 'lucide-react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
+import aiStylesData from '../../docs/AI出图风格.json';
+import * as Tooltip from '@radix-ui/react-tooltip';
 
 interface ScriptFrame {
   id?: number;
@@ -21,6 +23,28 @@ interface ScriptFrame {
   status?: 'pending' | 'generating' | 'completed' | 'failed';
   error?: string;
   progress?: string; // Add progress field for showing generation status
+}
+
+interface AIStyle {
+  id: string;
+  name: string;
+  prompt_keywords: string;
+  description: string;
+  use_cases: string[];
+  recommended_settings?: any;
+}
+
+interface StyleSubcategory {
+  id: string;
+  name: string;
+  styles: AIStyle[];
+}
+
+interface StyleCategory {
+  id: string;
+  name: string;
+  description: string;
+  subcategories: StyleSubcategory[];
 }
 
 const StoryboardWorkspace: React.FC = () => {
@@ -49,6 +73,9 @@ const StoryboardWorkspace: React.FC = () => {
     current: number;
     total: number;
   }>({ isDownloading: false, current: 0, total: 0 });
+  const [styleModalOpen, setStyleModalOpen] = useState(false);
+  const [selectedStyle, setSelectedStyle] = useState<AIStyle | null>(null);
+  const aiStyles = aiStylesData.ai_video_styles.categories as StyleCategory[];
 
   useEffect(() => {
     // Load scripts and characters on mount
@@ -1111,7 +1138,7 @@ const StoryboardWorkspace: React.FC = () => {
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-2xl font-bold mb-4">分镜工作台</h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">选择脚本</label>
             <select
@@ -1161,6 +1188,19 @@ const StoryboardWorkspace: React.FC = () => {
               <option value="sora_image">Sora Image</option>
               <option value="gemini-2.5-flash-image-preview">Gemini 2.5 Flash</option>
             </select>
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium mb-2">出图风格</label>
+            <button
+              onClick={() => setStyleModalOpen(true)}
+              className="w-full border rounded px-3 py-2 flex items-center justify-between hover:bg-gray-50"
+            >
+              <span className="truncate">
+                {selectedStyle ? selectedStyle.name : '选择风格（可选）'}
+              </span>
+              <Palette className="w-4 h-4 text-gray-500" />
+            </button>
           </div>
         </div>
       </div>
@@ -1440,24 +1480,24 @@ const StoryboardWorkspace: React.FC = () => {
                           <textarea
                             value={editedPrompt}
                             onChange={(e) => setEditedPrompt(e.target.value)}
-                            className="flex-1 border rounded px-2 py-1 text-sm resize-none leading-relaxed"
-                            rows={4}
+                            className="flex-1 border rounded px-2 py-1 text-sm resize-none leading-relaxed min-h-[1.5rem]"
+                            style={{ height: 'auto', minHeight: '1.5rem' }}
                             autoFocus
                           />
                           <div className="flex flex-col space-y-1">
                             <button
                               onClick={() => saveEditedPrompt(frame.frame_number)}
-                              className="text-green-500 hover:text-green-700"
+                              className="text-green-500 hover:text-green-700 p-1"
                               title="保存"
                             >
-                              <Save className="w-4 h-4" />
+                              <Save className="w-5 h-5" />
                             </button>
                             <button
                               onClick={cancelEdit}
-                              className="text-red-500 hover:text-red-700"
+                              className="text-red-500 hover:text-red-700 p-1"
                               title="取消"
                             >
-                              <X className="w-4 h-4" />
+                              <X className="w-5 h-5" />
                             </button>
                           </div>
                         </div>
@@ -1560,7 +1600,34 @@ const StoryboardWorkspace: React.FC = () => {
                           )}
                         </div>
                       ) : frame.status === 'failed' ? (
-                        <div className="text-red-500 text-xs">生成失败</div>
+                        <div className="flex items-center space-x-1">
+                          <span className="text-red-500 text-xs">生成失败</span>
+                          {frame.error && (
+                            <Tooltip.Provider>
+                              <Tooltip.Root>
+                                <Tooltip.Trigger asChild>
+                                  <button className="text-red-400 hover:text-red-600 transition-colors">
+                                    <Info className="w-3 h-3" />
+                                  </button>
+                                </Tooltip.Trigger>
+                                <Tooltip.Portal>
+                                  <Tooltip.Content
+                                    className="bg-gray-900 text-white px-4 py-3 rounded-lg text-xs max-w-md z-50 shadow-xl"
+                                    sideOffset={5}
+                                  >
+                                    <div className="space-y-2">
+                                      <div className="font-semibold text-red-300">错误详情：</div>
+                                      <div className="whitespace-pre-wrap break-words">
+                                        {frame.error}
+                                      </div>
+                                    </div>
+                                    <Tooltip.Arrow className="fill-gray-900" />
+                                  </Tooltip.Content>
+                                </Tooltip.Portal>
+                              </Tooltip.Root>
+                            </Tooltip.Provider>
+                          )}
+                        </div>
                       ) : (
                         <div className="w-20 h-20 bg-gray-100 rounded flex items-center justify-center">
                           <Image className="w-8 h-8 text-gray-400" />
@@ -1596,6 +1663,184 @@ const StoryboardWorkspace: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Style Selection Modal */}
+      {styleModalOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+          onClick={() => setStyleModalOpen(false)}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-[90vw] max-h-[90vh] w-[1400px] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 border-b flex justify-between items-center">
+              <h3 className="text-xl font-semibold">选择出图风格</h3>
+              <button
+                onClick={() => setStyleModalOpen(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content with scroll */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {aiStyles.map((category, categoryIndex) => {
+                let styleCounter = 0;
+                // Calculate the starting number for this category
+                for (let i = 0; i < categoryIndex; i++) {
+                  aiStyles[i].subcategories.forEach(sub => {
+                    styleCounter += sub.styles.length;
+                  });
+                }
+                
+                return (
+                  <div key={category.id} className="mb-8">
+                    <h4 className="text-lg font-bold text-gray-800 mb-2">
+                      {category.name}
+                    </h4>
+                    <p className="text-sm text-gray-600 mb-4">{category.description}</p>
+                    
+                    {category.subcategories.map((subcategory) => (
+                      <div key={subcategory.id} className="mb-6">
+                        <h5 className="text-md font-semibold text-gray-700 mb-3">
+                          {subcategory.name}
+                        </h5>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {subcategory.styles.map((style) => {
+                            styleCounter++;
+                            const styleNumber = styleCounter;
+                            return (
+                              <div
+                                key={style.id}
+                                className={`relative border rounded-lg p-4 cursor-pointer transition-all hover:shadow-lg ${
+                                  selectedStyle?.id === style.id 
+                                    ? 'ring-2 ring-blue-500 bg-blue-50' 
+                                    : 'hover:bg-gray-50'
+                                }`}
+                                onClick={() => {
+                                  if (!selectedScriptId) {
+                                    alert('请先选择脚本');
+                                    return;
+                                  }
+                                  setSelectedStyle(style);
+                                  // Apply style to all frames
+                                  const styleText = `出图风格：${style.id}(${style.prompt_keywords})`;
+                                  
+                                  // Update all frames' prompts to include style
+                                  setScriptFrames(prevFrames => {
+                                    if (prevFrames.length === 0) return prevFrames;
+                                    
+                                    return prevFrames.map(frame => {
+                                      const newFrame = { ...frame };
+                                      const lines = newFrame.prompt.split('\n');
+                                      
+                                      // Check if there's already a style line
+                                      if (lines[0].startsWith('出图风格：')) {
+                                        // Replace existing style line
+                                        lines[0] = styleText;
+                                      } else {
+                                        // Add new style line at the beginning
+                                        lines.unshift(styleText);
+                                      }
+                                      
+                                      newFrame.prompt = lines.join('\n');
+                                      return newFrame;
+                                    });
+                                  });
+                                  
+                                  setStyleModalOpen(false);
+                                }}
+                              >
+                                {/* Style Number Badge */}
+                                <div className="absolute -top-2 -left-2 bg-blue-500 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold">
+                                  {styleNumber}
+                                </div>
+                                
+                                <h6 className="text-lg font-semibold text-gray-800 mb-2">
+                                  {style.name}
+                                </h6>
+                            
+                            <p className="text-sm text-gray-600 mb-3">
+                              {style.description}
+                            </p>
+                            
+                            {style.use_cases && style.use_cases.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {style.use_cases.map((useCase, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded"
+                                  >
+                                    {useCase}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            
+                            {selectedStyle?.id === style.id && (
+                              <div className="mt-3 flex items-center text-blue-600">
+                                <Check className="w-4 h-4 mr-1" />
+                                <span className="text-sm">已选择</span>
+                              </div>
+                            )}
+                          </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t flex justify-between items-center">
+              <div className="text-sm text-gray-500">
+                {selectedStyle ? `已选择：${selectedStyle.name}` : '未选择风格'}
+              </div>
+              <div className="space-x-2">
+                {selectedStyle && (
+                  <button
+                    onClick={() => {
+                      setSelectedStyle(null);
+                      // Remove style from all frames
+                      setScriptFrames(prevFrames => {
+                        if (prevFrames.length === 0) return prevFrames;
+                        
+                        return prevFrames.map(frame => {
+                          const newFrame = { ...frame };
+                          const lines = newFrame.prompt.split('\n');
+                          
+                          if (lines[0].startsWith('出图风格：')) {
+                            lines.shift(); // Remove the style line
+                            newFrame.prompt = lines.join('\n');
+                          }
+                          
+                          return newFrame;
+                        });
+                      });
+                    }}
+                    className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                  >
+                    清除风格
+                  </button>
+                )}
+                <button
+                  onClick={() => setStyleModalOpen(false)}
+                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                >
+                  确定
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

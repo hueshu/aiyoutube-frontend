@@ -1,0 +1,623 @@
+{
+  "ai_video_styles": {
+    "version": "1.0.0",
+    "categories": [
+      {
+        "id": "mainstream_narrative",
+        "name": "主流叙事风格",
+        "description": "常用的主流视频叙事风格",
+        "subcategories": [
+          {
+            "id": "anime_2d",
+            "name": "动漫/二次元风格",
+            "styles": [
+              {
+                "id": "japanese_anime",
+                "name": "日系动漫风格",
+                "prompt_keywords": "anime style, japanese animation, big expressive eyes, detailed facial expressions, dynamic hair and clothing, bright color contrast, speed lines, effect glows, manga aesthetic",
+                "description": "大眼睛角色设计，细腻的面部表情，动态的头发和服装褶皱，明亮的色彩对比，典型的日本动画美学，包含速度线和特效光晕",
+                "use_cases": ["青春校园", "热血冒险", "奇幻战斗", "恋爱故事"],
+                "recommended_settings": {
+                  "aspect_ratio": "16:9",
+                  "color_saturation": "high",
+                  "line_weight": "medium"
+                }
+              },
+              {
+                "id": "korean_illustration",
+                "name": "韩式唯美插画",
+                "prompt_keywords": "korean illustration style, soft pastel colors, delicate character features, dreamy lighting, fine texture details, warm color temperature, blurred background, manhwa aesthetic",
+                "description": "柔和的色调，精致的人物五官，梦幻的光影效果，细腻的纹理质感，温暖的色温，朦胧的背景虚化",
+                "use_cases": ["浪漫爱情", "治愈系", "日常生活", "情感故事"],
+                "recommended_settings": {
+                  "aspect_ratio": "16:9",
+                  "color_saturation": "medium",
+                  "softness": "high"
+                }
+              },
+              {
+                "id": "western_cartoon",
+                "name": "欧美卡通风格",
+                "prompt_keywords": "western cartoon style, exaggerated proportions, bold outlines, saturated colors, simplified shapes, strong action poses, comic book aesthetic",
+                "description": "夸张的人物比例，粗线条轮廓，饱和度高的色彩，简化的形状设计，强烈的动作表现力",
+                "use_cases": ["搞笑喜剧", "超级英雄", "冒险动作", "儿童故事"],
+                "recommended_settings": {
+                  "aspect_ratio": "16:9",
+                  "color_saturation": "very_high",
+                  "line_weight": "thick"
+                }
+              },
+              {
+                "id": "makoto_shinkai",
+                "name": "新海诚风格",
+                "prompt_keywords": "makoto shinkai style, hyper-realistic backgrounds, stunning sky rendering, dramatic lighting, detailed environmental atmosphere, cinematic composition, anime movie quality",
+                "description": "超写实的背景细节，绚丽的天空渲染，强烈的光影对比，细腻的环境氛围，电影级的构图",
+                "use_cases": ["青春恋爱", "科幻奇幻", "情感治愈"],
+                "recommended_settings": {
+                  "aspect_ratio": "21:9",
+                  "detail_level": "ultra_high",
+                  "lighting": "dramatic"
+                }
+              }
+            ]
+          },
+          {
+            "id": "3d_render",
+            "name": "3D渲染风格",
+            "styles": [
+              {
+                "id": "pixar_3d",
+                "name": "皮克斯3D动画",
+                "prompt_keywords": "pixar 3d animation style, rounded character design, expressive faces, warm ambient lighting, detailed textures, cinematic depth of field, family-friendly aesthetic",
+                "description": "圆润的角色造型，夸张但自然的表情动作，温暖的环境光照，细腻的材质纹理，电影级的景深效果",
+                "use_cases": ["家庭温馨", "成长故事", "冒险喜剧"],
+                "recommended_settings": {
+                  "render_quality": "high",
+                  "subsurface_scattering": true,
+                  "depth_of_field": true
+                }
+              },
+              {
+                "id": "photorealistic_3d",
+                "name": "超写实3D渲染",
+                "prompt_keywords": "photorealistic 3d render, realistic human modeling, accurate skin textures, physically based lighting, high detail environments, cinematic post-processing, unreal engine quality",
+                "description": "逼真的人物建模，真实的皮肤纹理，物理准确的光照系统，高精度的环境细节，电影级的后期效果",
+                "use_cases": ["科幻大片", "动作冒险", "灾难片"],
+                "recommended_settings": {
+                  "render_quality": "ultra",
+                  "ray_tracing": true,
+                  "motion_blur": true
+                }
+              },
+              {
+                "id": "stylized_3d",
+                "name": "风格化3D卡通",
+                "prompt_keywords": "stylized 3d cartoon, simplified geometry, candy colors, soft edges, toy-like textures, exaggerated physics, playful aesthetic",
+                "description": "简化的几何造型，鲜艳的糖果色彩，柔和的边缘处理，玩具般的质感，夸张的物理效果",
+                "use_cases": ["儿童动画", "轻松喜剧", "教育内容"],
+                "recommended_settings": {
+                  "render_style": "toon_shading",
+                  "outline": true,
+                  "color_palette": "vibrant"
+                }
+              }
+            ]
+          },
+          {
+            "id": "photographic",
+            "name": "写实摄影风格",
+            "styles": [
+              {
+                "id": "cinematic_photography",
+                "name": "电影摄影风格",
+                "prompt_keywords": "cinematic photography, widescreen composition, professional depth of field, cinema color grading, motion blur, professional lighting setup, film look",
+                "description": "宽屏比例构图，专业的景深控制，电影级色彩调色，动态模糊效果，专业灯光布置",
+                "use_cases": ["剧情片", "悬疑推理", "人物传记"],
+                "recommended_settings": {
+                  "aspect_ratio": "21:9",
+                  "color_grading": "cinematic",
+                  "lens_type": "anamorphic"
+                }
+              },
+              {
+                "id": "documentary",
+                "name": "纪录片风格",
+                "prompt_keywords": "documentary style, handheld camera feel, natural lighting, unprocessed footage aesthetic, journalistic composition, raw and authentic",
+                "description": "手持摄影的自然晃动感，真实的环境光，未经修饰的画面质感，新闻摄影构图",
+                "use_cases": ["真实事件", "历史故事", "社会题材"],
+                "recommended_settings": {
+                  "camera_movement": "handheld",
+                  "color_grading": "natural",
+                  "grain": "medium"
+                }
+              },
+              {
+                "id": "vintage_film",
+                "name": "复古胶片风格",
+                "prompt_keywords": "vintage film photography, film grain texture, faded colors, light leaks, old photo scratches, nostalgic color temperature, analog aesthetic",
+                "description": "胶片颗粒质感，褪色的色彩效果，轻微的漏光效果，老照片的划痕纹理，怀旧的色温",
+                "use_cases": ["年代故事", "回忆录", "历史题材"],
+                "recommended_settings": {
+                  "film_type": "35mm",
+                  "grain": "heavy",
+                  "color_fade": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "artistic_styles",
+        "name": "特色艺术风格",
+        "description": "具有独特艺术表现力的风格",
+        "subcategories": [
+          {
+            "id": "illustration",
+            "name": "绘本插画风格",
+            "styles": [
+              {
+                "id": "watercolor_fairy_tale",
+                "name": "水彩童话风格",
+                "prompt_keywords": "watercolor illustration, transparent wash effects, soft color transitions, hand-painted irregular edges, paper texture, dreamy color palette, children's book style",
+                "description": "透明水彩的晕染效果，柔和的色彩过渡，手绘的不规则边缘，纸张纹理质感，梦幻的色彩搭配",
+                "use_cases": ["童话故事", "儿童绘本", "温馨故事"],
+                "recommended_settings": {
+                  "texture": "watercolor_paper",
+                  "edge_style": "soft",
+                  "opacity": "variable"
+                }
+              },
+              {
+                "id": "colored_pencil",
+                "name": "彩铅手绘风格",
+                "prompt_keywords": "colored pencil drawing, pencil stroke texture, soft color layers, sketch line quality, paper grain texture, hand-drawn aesthetic",
+                "description": "彩色铅笔的笔触纹理，柔和的色彩层次，素描的线条感，纸张的颗粒质感",
+                "use_cases": ["文艺故事", "个人回忆", "情感表达"],
+                "recommended_settings": {
+                  "texture": "drawing_paper",
+                  "stroke_visible": true,
+                  "shading": "cross_hatch"
+                }
+              },
+              {
+                "id": "flat_vector",
+                "name": "扁平矢量插画",
+                "prompt_keywords": "flat vector illustration, geometric shapes, solid color blocks, clean lines, modern color scheme, no shadows, minimalist design",
+                "description": "几何化的形状设计，纯色块的组合，简洁的线条，现代的配色方案，无阴影的平面设计",
+                "use_cases": ["科普教育", "信息图表", "现代故事"],
+                "recommended_settings": {
+                  "shadows": false,
+                  "gradients": false,
+                  "style": "flat_design"
+                }
+              },
+              {
+                "id": "woodcut_print",
+                "name": "版画艺术风格",
+                "prompt_keywords": "woodcut print style, strong black and white contrast, carved line texture, rough lines, vintage printing effect, linocut aesthetic",
+                "description": "强烈的黑白对比，木刻版画的纹理，粗犷的线条刻画，复古的印刷效果",
+                "use_cases": ["历史故事", "民间传说", "艺术表现"],
+                "recommended_settings": {
+                  "colors": "limited_palette",
+                  "line_style": "carved",
+                  "texture": "wood_grain"
+                }
+              }
+            ]
+          },
+          {
+            "id": "comic_manga",
+            "name": "漫画分镜风格",
+            "styles": [
+              {
+                "id": "shonen_manga",
+                "name": "日式少年漫画",
+                "prompt_keywords": "shonen manga style, dynamic panel composition, speed lines, action lines, exaggerated expressions, black and white ink art, screentone effects",
+                "description": "动态的分镜构图，速度线和集中线，夸张的表情符号，黑白的墨线艺术，网点纸效果",
+                "use_cases": ["热血战斗", "体育竞技", "冒险故事"],
+                "recommended_settings": {
+                  "color_mode": "black_white",
+                  "screentone": true,
+                  "panel_layout": "dynamic"
+                }
+              },
+              {
+                "id": "american_comic",
+                "name": "美式超英漫画",
+                "prompt_keywords": "american comic book style, strong contrast, bold lines, primary colors, dynamic action poses, comic book printing effect, superhero aesthetic",
+                "description": "强烈的明暗对比，粗犷的线条，鲜艳的原色使用，动态的动作姿势，漫画书印刷效果",
+                "use_cases": ["超级英雄", "科幻动作", "冒险故事"],
+                "recommended_settings": {
+                  "color_palette": "primary",
+                  "ink_style": "bold",
+                  "halftone": true
+                }
+              },
+              {
+                "id": "european_comic",
+                "name": "欧洲艺术漫画",
+                "prompt_keywords": "european comic art, detailed line art, sophisticated environments, unique color usage, cinematic composition, bande dessinée style",
+                "description": "细腻的线条艺术，精致的环境描绘，独特的色彩运用，电影化的构图",
+                "use_cases": ["成人故事", "艺术表现", "哲理故事"],
+                "recommended_settings": {
+                  "detail_level": "high",
+                  "color_style": "artistic",
+                  "line_weight": "variable"
+                }
+              },
+              {
+                "id": "webtoon",
+                "name": "四格条漫风格",
+                "prompt_keywords": "webtoon style, vertical scroll format, simple character design, clear panel layout, exaggerated expressions, speech bubbles, mobile-optimized",
+                "description": "简洁的人物设计，清晰的分格布局，表情包式的夸张表现，对话气泡",
+                "use_cases": ["日常搞笑", "轻松段子", "网络梗"],
+                "recommended_settings": {
+                  "format": "vertical",
+                  "panel_spacing": "clear",
+                  "text_integration": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "fine_art_styles",
+        "name": "概念艺术风格",
+        "description": "传统和现代艺术风格",
+        "subcategories": [
+          {
+            "id": "painting_styles",
+            "name": "绘画艺术风格",
+            "styles": [
+              {
+                "id": "classical_oil",
+                "name": "古典油画风格",
+                "prompt_keywords": "classical oil painting, thick paint strokes, chiaroscuro lighting, warm tones, renaissance composition, canvas texture, old master style",
+                "description": "厚重的油画笔触，古典的明暗对比法，温暖的色调，文艺复兴时期的构图，画布纹理",
+                "use_cases": ["史诗故事", "神话传说", "历史题材"],
+                "recommended_settings": {
+                  "brush_style": "oil",
+                  "lighting": "chiaroscuro",
+                  "texture": "canvas"
+                }
+              },
+              {
+                "id": "impressionism",
+                "name": "印象派风格",
+                "prompt_keywords": "impressionist painting, broken color strokes, light and shadow capture, blurred contours, vibrant color contrast, monet style, outdoor lighting",
+                "description": "斑驳的色彩笔触，光影的瞬间捕捉，朦胧的轮廓，鲜艳的色彩对比",
+                "use_cases": ["艺术故事", "浪漫情感", "自然风光"],
+                "recommended_settings": {
+                  "brush_technique": "broken_color",
+                  "focus": "light_capture",
+                  "edge_definition": "soft"
+                }
+              },
+              {
+                "id": "expressionism",
+                "name": "表现主义风格",
+                "prompt_keywords": "expressionist art, distorted forms, emotional colors, rough brushstrokes, exaggerated perspective, psychological intensity",
+                "description": "扭曲的形态，强烈的情感色彩，粗犷的笔触，夸张的透视",
+                "use_cases": ["心理惊悚", "情感表达", "艺术实验"],
+                "recommended_settings": {
+                  "distortion": "high",
+                  "color_emotion": "intense",
+                  "brush_energy": "aggressive"
+                }
+              },
+              {
+                "id": "surrealism",
+                "name": "超现实主义",
+                "prompt_keywords": "surrealist art, dreamlike scenes, illogical combinations, photorealistic technique, strange visual effects, dali style, subconscious imagery",
+                "description": "梦境般的场景组合，不合逻辑的元素拼接，精细的写实技法，奇异的视觉效果",
+                "use_cases": ["奇幻故事", "梦境描述", "哲学思考"],
+                "recommended_settings": {
+                  "reality_blend": "distorted",
+                  "detail_level": "hyper_realistic",
+                  "composition": "dreamlike"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "cultural_styles",
+        "name": "文化特色风格",
+        "description": "不同文化背景的艺术风格",
+        "subcategories": [
+          {
+            "id": "eastern_aesthetics",
+            "name": "东方美学风格",
+            "styles": [
+              {
+                "id": "chinese_ink",
+                "name": "中国水墨画风",
+                "prompt_keywords": "chinese ink painting, ink wash gradients, negative space aesthetics, landscape composition, brush stroke effects, rice paper texture, sumi-e style",
+                "description": "墨色的浓淡变化，留白的意境美学，山水画的构图，毛笔的笔触效果，宣纸的晕染质感",
+                "use_cases": ["武侠故事", "古代传说", "诗词意境"],
+                "recommended_settings": {
+                  "color_mode": "monochrome",
+                  "brush_type": "chinese_brush",
+                  "composition": "balanced_void"
+                }
+              },
+              {
+                "id": "ukiyo_e",
+                "name": "日本浮世绘",
+                "prompt_keywords": "ukiyo-e japanese woodblock print, flat colors, precise line work, traditional color scheme, woodblock texture, edo period aesthetic",
+                "description": "平面化的色彩，精致的线条勾勒，传统的配色方案，木版画的质感",
+                "use_cases": ["日本故事", "传统文化", "历史题材"],
+                "recommended_settings": {
+                  "color_layers": "separated",
+                  "line_precision": "high",
+                  "texture": "woodblock"
+                }
+              },
+              {
+                "id": "dunhuang_murals",
+                "name": "敦煌壁画风格",
+                "prompt_keywords": "dunhuang mural style, golden colors, flying apsaras, buddhist art elements, ancient fresco texture, silk road aesthetic",
+                "description": "金碧辉煌的色彩，飞天的动态美感，佛教艺术元素，古老的壁画质感",
+                "use_cases": ["神话故事", "宗教题材", "历史传说"],
+                "recommended_settings": {
+                  "color_palette": "gold_dominant",
+                  "texture": "fresco",
+                  "motifs": "buddhist"
+                }
+              },
+              {
+                "id": "gongbi",
+                "name": "工笔画风格",
+                "prompt_keywords": "gongbi fine brush painting, meticulous line drawing, delicate coloring, realistic forms, silk texture, chinese traditional painting",
+                "description": "精细的线条勾勒，淡雅的设色，写实的造型，丝绸般的质感",
+                "use_cases": ["古典故事", "宫廷题材", "细腻情感"],
+                "recommended_settings": {
+                  "line_quality": "ultra_fine",
+                  "color_application": "layered",
+                  "substrate": "silk"
+                }
+              }
+            ]
+          },
+          {
+            "id": "western_art_movements",
+            "name": "西方艺术风格",
+            "styles": [
+              {
+                "id": "victorian",
+                "name": "维多利亚风格",
+                "prompt_keywords": "victorian era style, ornate decorative details, vintage color palette, elaborate costumes, classical architecture, period aesthetic",
+                "description": "华丽的装饰细节，复古的色彩搭配，精致的服装设计，古典的建筑背景",
+                "use_cases": ["历史剧", "贵族故事", "蒸汽朋克"],
+                "recommended_settings": {
+                  "detail_density": "high",
+                  "color_mood": "sepia",
+                  "ornamentation": "elaborate"
+                }
+              },
+              {
+                "id": "art_nouveau",
+                "name": "新艺术运动风格",
+                "prompt_keywords": "art nouveau style, flowing curves, natural plant motifs, elegant decorative elements, soft colors, alphonse mucha inspired",
+                "description": "流畅的曲线设计，自然的植物纹样，优雅的装饰元素，柔和的色彩",
+                "use_cases": ["浪漫故事", "艺术题材", "复古风格"],
+                "recommended_settings": {
+                  "line_flow": "organic",
+                  "motif_type": "botanical",
+                  "composition": "decorative"
+                }
+              },
+              {
+                "id": "bauhaus",
+                "name": "包豪斯风格",
+                "prompt_keywords": "bauhaus style, geometric design, functionalist aesthetics, clean lines, primary colors, modernist approach",
+                "description": "几何化的设计，功能主义美学，简洁的线条，原色的运用",
+                "use_cases": ["现代故事", "设计题材", "未来主义"],
+                "recommended_settings": {
+                  "geometry": "pure",
+                  "color_scheme": "primary",
+                  "design_principle": "form_follows_function"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "game_visual_styles",
+        "name": "游戏视觉风格",
+        "description": "游戏相关的视觉风格",
+        "subcategories": [
+          {
+            "id": "pixel_art",
+            "name": "像素艺术风格",
+            "styles": [
+              {
+                "id": "8bit_pixel",
+                "name": "8位像素风格",
+                "prompt_keywords": "8-bit pixel art, low resolution pixels, limited color palette, retro game console aesthetic, nes style graphics",
+                "description": "低分辨率的像素点阵，限制的色彩palette，复古游戏机的视觉效果",
+                "use_cases": ["复古游戏", "怀旧故事", "电子游戏文化"],
+                "recommended_settings": {
+                  "resolution": "low",
+                  "color_limit": 16,
+                  "dithering": true
+                }
+              },
+              {
+                "id": "16bit_pixel",
+                "name": "16位像素风格",
+                "prompt_keywords": "16-bit pixel art, richer color depth, detailed pixel work, classic rpg aesthetic, snes style graphics",
+                "description": "更丰富的色彩层次，精细的像素艺术，经典RPG游戏美学",
+                "use_cases": ["冒险故事", "RPG剧情", "游戏改编"],
+                "recommended_settings": {
+                  "resolution": "medium",
+                  "color_limit": 256,
+                  "sprite_detail": "high"
+                }
+              },
+              {
+                "id": "modern_pixel",
+                "name": "现代像素艺术",
+                "prompt_keywords": "modern pixel art, high resolution pixels, modern lighting effects, detailed animation, indie game aesthetic",
+                "description": "高分辨率的像素艺术，现代的光影效果，精致的动画细节",
+                "use_cases": ["独立游戏风格", "艺术表现"],
+                "recommended_settings": {
+                  "resolution": "high",
+                  "lighting": "dynamic",
+                  "animation_frames": "smooth"
+                }
+              }
+            ]
+          },
+          {
+            "id": "concept_design",
+            "name": "概念设计风格",
+            "styles": [
+              {
+                "id": "cyberpunk",
+                "name": "赛博朋克2077",
+                "prompt_keywords": "cyberpunk style, neon lights, high tech low life, rain reflections, holographic projections, body modifications, blade runner aesthetic",
+                "description": "霓虹灯光效果，高科技低生活美学，雨夜的反光效果，全息投影元素，机械改造人体",
+                "use_cases": ["未来科幻", "反乌托邦", "黑客文化"],
+                "recommended_settings": {
+                  "lighting": "neon_dominant",
+                  "atmosphere": "dark_urban",
+                  "tech_level": "advanced"
+                }
+              },
+              {
+                "id": "steampunk",
+                "name": "蒸汽朋克风格",
+                "prompt_keywords": "steampunk style, brass and gears, victorian era clothing, steam powered machinery, retrofuturistic aesthetic",
+                "description": "黄铜和齿轮元素，维多利亚时期服装，蒸汽动力机械，复古未来主义",
+                "use_cases": ["架空历史", "冒险故事", "机械美学"],
+                "recommended_settings": {
+                  "material": "brass_copper",
+                  "era_blend": "victorian_future",
+                  "mechanism": "visible_gears"
+                }
+              },
+              {
+                "id": "post_apocalyptic",
+                "name": "废土末世风格",
+                "prompt_keywords": "post-apocalyptic wasteland, ruined environments, rusty metal, dust storms, survival aesthetic, fallout style",
+                "description": "破败的环境，锈迹斑斑的金属，沙尘暴效果，生存主义美学",
+                "use_cases": ["末日生存", "冒险故事", "反乌托邦"],
+                "recommended_settings": {
+                  "environment": "destroyed",
+                  "color_tone": "desaturated",
+                  "weather": "dusty"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "special_effects",
+        "name": "特殊效果风格",
+        "description": "特殊视觉效果风格",
+        "subcategories": [
+          {
+            "id": "light_effects",
+            "name": "光影特效风格",
+            "styles": [
+              {
+                "id": "neon_glow",
+                "name": "霓虹发光风格",
+                "prompt_keywords": "neon glow effect, vibrant neon colors, glowing outlines, dark background contrast, electronic visual aesthetic, tron style",
+                "description": "鲜艳的霓虹色彩，发光的轮廓线，暗背景的对比，电子感的视觉效果",
+                "use_cases": ["夜生活", "现代都市", "电子音乐"],
+                "recommended_settings": {
+                  "glow_intensity": "high",
+                  "background": "dark",
+                  "color_vibrancy": "maximum"
+                }
+              },
+              {
+                "id": "silhouette",
+                "name": "剪影艺术风格",
+                "prompt_keywords": "silhouette art style, pure black figures, colorful gradient background, simple shape expression, dramatic lighting",
+                "description": "纯黑的人物剪影，彩色的背景渐变，简洁的形态表现，戏剧性的光影",
+                "use_cases": ["神秘故事", "艺术表现", "情感渲染"],
+                "recommended_settings": {
+                  "figure": "solid_black",
+                  "background": "gradient",
+                  "contrast": "maximum"
+                }
+              },
+              {
+                "id": "double_exposure",
+                "name": "双重曝光风格",
+                "prompt_keywords": "double exposure effect, layered image blend, transparent mixing, poetic visual expression, photographic technique",
+                "description": "两个画面的叠加融合，透明的混合效果，诗意的视觉表达",
+                "use_cases": ["回忆故事", "艺术表现", "情感表达"],
+                "recommended_settings": {
+                  "blend_mode": "screen",
+                  "opacity": "variable",
+                  "layer_count": 2
+                }
+              }
+            ]
+          },
+          {
+            "id": "material_simulation",
+            "name": "材质模拟风格",
+            "styles": [
+              {
+                "id": "paper_cut",
+                "name": "剪纸艺术风格",
+                "prompt_keywords": "paper cut art style, layered paper effect, clear cut silhouettes, shadow depth layers, handcraft texture",
+                "description": "层叠的纸张效果，清晰的轮廓剪裁，阴影的层次感，手工艺术质感",
+                "use_cases": ["民间故事", "儿童内容", "装饰艺术"],
+                "recommended_settings": {
+                  "layer_depth": "multiple",
+                  "edge_style": "clean_cut",
+                  "shadow": "layered"
+                }
+              },
+              {
+                "id": "claymation",
+                "name": "黏土动画风格",
+                "prompt_keywords": "claymation style, clay texture, handmade marks, soft forms, stop motion aesthetic, wallace and gromit style",
+                "description": "黏土的质感表现，手工捏制的痕迹，柔和的形态，定格动画美学",
+                "use_cases": ["儿童动画", "温馨故事", "手工艺术"],
+                "recommended_settings": {
+                  "surface": "clay_texture",
+                  "imperfections": "visible",
+                  "lighting": "soft_studio"
+                }
+              },
+              {
+                "id": "low_poly",
+                "name": "低多边形风格",
+                "prompt_keywords": "low poly art style, simplified geometric facets, bold color blocks, modern minimalist aesthetic, crystallized effect",
+                "description": "简化的几何面片，鲜明的色块，现代的极简美学，晶体化的效果",
+                "use_cases": ["现代设计", "游戏风格", "科技感"],
+                "recommended_settings": {
+                  "polygon_count": "low",
+                  "shading": "flat",
+                  "color_variation": "faceted"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "total_styles": 54,
+      "created_date": "2024-12-19",
+      "last_updated": "2024-12-19",
+      "usage_notes": {
+        "prompt_construction": "建议将prompt_keywords直接加入到AI绘图提示词中",
+        "style_combination": "可以组合多个风格获得独特效果",
+        "settings_application": "recommended_settings可根据具体AI工具调整使用"
+      }
+    }
+  }
+}
