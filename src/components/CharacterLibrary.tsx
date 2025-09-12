@@ -567,29 +567,6 @@ export default function CharacterLibrary() {
                       ))}
                     </div>
                   )}
-                  
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={customTag}
-                      onChange={(e) => setCustomTag(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          addCustomTag()
-                        }
-                      }}
-                      placeholder="其他标签（按回车添加）"
-                      className="flex-1 px-3 py-1 border rounded text-sm"
-                    />
-                    <button
-                      type="button"
-                      onClick={addCustomTag}
-                      className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm"
-                    >
-                      添加
-                    </button>
-                  </div>
                 </div>
               </div>
               
