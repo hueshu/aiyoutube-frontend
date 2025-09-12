@@ -5,6 +5,8 @@ import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Ch
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import aiStylesData from '../../docs/AI出图风格.json';
+import costumeAttributesData from '../../../docs/服装属性.json';
+import costumeTypesData from '../../../docs/服装类型.json';
 import * as Tooltip from '@radix-ui/react-tooltip';
 
 interface ScriptFrame {
@@ -23,6 +25,7 @@ interface ScriptFrame {
   status?: 'pending' | 'generating' | 'completed' | 'failed';
   error?: string;
   progress?: string; // Add progress field for showing generation status
+  costume?: string[];  // Store selected costume items
 }
 
 interface AIStyle {
@@ -69,6 +72,11 @@ const StoryboardWorkspace: React.FC = () => {
     selectedCategory: string;
     selectedTags: string[];
   }>({ isOpen: false, scriptChar: null, selectedCategory: '全部', selectedTags: [] });
+  const [costumeModal, setCostumeModal] = useState<{
+    isOpen: boolean;
+    frameIndex: number | null;
+    selectedItems: string[];
+  }>({ isOpen: false, frameIndex: null, selectedItems: [] });
   const [downloadProgress, setDownloadProgress] = useState<{
     isDownloading: boolean;
     current: number;
@@ -1558,6 +1566,7 @@ const StoryboardWorkspace: React.FC = () => {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-16">序号</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase min-w-[300px]">脚本文案</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-36">服装</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-48">角色</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-28">生成的图片</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-32">操作</th>
@@ -1610,6 +1619,26 @@ const StoryboardWorkspace: React.FC = () => {
                           </button>
                         </div>
                       )}
+                    </td>
+                    {/* 服装列 */}
+                    <td className="px-4 py-4">
+                      <button
+                        onClick={() => {
+                          const index = scriptFrames.findIndex(f => f.frame_number === frame.frame_number);
+                          setCostumeModal({
+                            isOpen: true,
+                            frameIndex: index,
+                            selectedItems: frame.costume || []
+                          });
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-800 hover:bg-blue-50 px-2 py-1 rounded transition-colors"
+                      >
+                        {frame.costume && frame.costume.length > 0 ? (
+                          <span>已选 {frame.costume.length} 项</span>
+                        ) : (
+                          <span>点击选择</span>
+                        )}
+                      </button>
                     </td>
                     <td className="px-4 py-4">
                       {(() => {
@@ -2029,6 +2058,174 @@ const StoryboardWorkspace: React.FC = () => {
             >
               <X className="w-6 h-6" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Costume Selection Modal */}
+      {costumeModal.isOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+          onClick={() => setCostumeModal({ isOpen: false, frameIndex: null, selectedItems: [] })}
+        >
+          <div 
+            className="bg-white rounded-lg shadow-xl max-w-[90vw] h-[85vh] w-[1000px] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 border-b flex justify-between items-center">
+              <h3 className="text-lg font-semibold">选择服装</h3>
+              <button
+                onClick={() => setCostumeModal({ isOpen: false, frameIndex: null, selectedItems: [] })}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {/* Default Options */}
+              <div className="mb-6">
+                <h4 className="font-medium text-gray-700 mb-3">默认选项</h4>
+                <div className="flex flex-wrap gap-2">
+                  {['根据环境变更', '破烂', '性感', '奢华'].map(item => (
+                    <button
+                      key={item}
+                      onClick={() => {
+                        setCostumeModal(prev => ({
+                          ...prev,
+                          selectedItems: prev.selectedItems.includes(item)
+                            ? prev.selectedItems.filter(i => i !== item)
+                            : [...prev.selectedItems, item]
+                        }));
+                      }}
+                      className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                        costumeModal.selectedItems.includes(item)
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                      }`}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Costume Attributes */}
+              <div className="mb-6">
+                <h4 className="font-medium text-gray-700 mb-3">服装属性</h4>
+                {Object.entries(costumeAttributesData.costume_attributes).map(([category, items]) => (
+                  <div key={category} className="mb-3">
+                    <h5 className="text-sm text-gray-600 mb-2">{category}</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {(items as string[]).map(item => (
+                        <button
+                          key={item}
+                          onClick={() => {
+                            setCostumeModal(prev => ({
+                              ...prev,
+                              selectedItems: prev.selectedItems.includes(item)
+                                ? prev.selectedItems.filter(i => i !== item)
+                                : [...prev.selectedItems, item]
+                            }));
+                          }}
+                          className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                            costumeModal.selectedItems.includes(item)
+                              ? 'bg-green-500 text-white'
+                              : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Costume Types */}
+              <div className="mb-6">
+                <h4 className="font-medium text-gray-700 mb-3">服装类型</h4>
+                {costumeTypesData.costume_categories.categories.map(category => (
+                  <div key={category.id} className="mb-4">
+                    <h5 className="font-medium text-gray-800 mb-2">{category.name}</h5>
+                    {category.subcategories.map(subcat => (
+                      <div key={subcat.name} className="ml-4 mb-3">
+                        <h6 className="text-sm text-gray-600 mb-2">{subcat.name}</h6>
+                        <div className="flex flex-wrap gap-2">
+                          {subcat.items.map(item => (
+                            <button
+                              key={item}
+                              onClick={() => {
+                                setCostumeModal(prev => ({
+                                  ...prev,
+                                  selectedItems: prev.selectedItems.includes(item)
+                                    ? prev.selectedItems.filter(i => i !== item)
+                                    : [...prev.selectedItems, item]
+                                }));
+                              }}
+                              className={`px-3 py-1 rounded-full text-xs transition-colors ${
+                                costumeModal.selectedItems.includes(item)
+                                  ? 'bg-purple-500 text-white'
+                                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                              }`}
+                            >
+                              {item}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t flex justify-between items-center">
+              <div className="text-sm text-gray-600">
+                已选择 {costumeModal.selectedItems.length} 项
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCostumeModal({ isOpen: false, frameIndex: null, selectedItems: [] })}
+                  className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    if (costumeModal.frameIndex !== null) {
+                      const updatedFrames = [...scriptFrames];
+                      updatedFrames[costumeModal.frameIndex] = {
+                        ...updatedFrames[costumeModal.frameIndex],
+                        costume: costumeModal.selectedItems
+                      };
+                      
+                      // Update prompt with costume description
+                      if (costumeModal.selectedItems.length > 0) {
+                        const costumeText = `\n服装：${costumeModal.selectedItems.join('，')}`;
+                        const currentPrompt = updatedFrames[costumeModal.frameIndex].prompt;
+                        // Remove existing costume text if any
+                        const promptWithoutCostume = currentPrompt.replace(/\n服装：[^\n]*$/, '');
+                        updatedFrames[costumeModal.frameIndex].prompt = promptWithoutCostume + costumeText;
+                      } else {
+                        // Remove costume text if no items selected
+                        updatedFrames[costumeModal.frameIndex].prompt = 
+                          updatedFrames[costumeModal.frameIndex].prompt.replace(/\n服装：[^\n]*$/, '');
+                      }
+                      
+                      setScriptFrames(updatedFrames);
+                    }
+                    setCostumeModal({ isOpen: false, frameIndex: null, selectedItems: [] });
+                  }}
+                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                >
+                  确定
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
