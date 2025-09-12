@@ -37,6 +37,9 @@ export default function CharacterLibrary() {
   
   // Preset tags
   const presetTags = ['男', '女', '小孩', '动物']
+  
+  // Edit modal custom tag state
+  const [editCustomTag, setEditCustomTag] = useState('')
 
   useEffect(() => {
     // Wait for user to be available before loading data
@@ -174,6 +177,7 @@ export default function CharacterLibrary() {
       ...character,
       tags: charTags
     })
+    setEditCustomTag('') // Reset custom tag input
     setShowEditModal(true)
   }
 
@@ -292,6 +296,19 @@ export default function CharacterLibrary() {
     if (customTag && !uploadTags.includes(customTag)) {
       setUploadTags([...uploadTags, customTag])
       setCustomTag('')
+    }
+  }
+  
+  const addEditCustomTag = () => {
+    if (editCustomTag && editingCharacter) {
+      const currentTags = editingCharacter.tags || []
+      if (!currentTags.includes(editCustomTag)) {
+        setEditingCharacter({
+          ...editingCharacter,
+          tags: [...currentTags, editCustomTag]
+        })
+        setEditCustomTag('')
+      }
     }
   }
 
@@ -507,6 +524,30 @@ export default function CharacterLibrary() {
                     ))}
                   </div>
                   
+                  {/* 自定义标签输入 */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={customTag}
+                      onChange={(e) => setCustomTag(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addCustomTag()
+                        }
+                      }}
+                      placeholder="输入自定义标签，按回车添加"
+                      className="flex-1 px-3 py-1 border rounded text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={addCustomTag}
+                      className="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
+                    >
+                      添加
+                    </button>
+                  </div>
+                  
                   {uploadTags.filter(tag => !presetTags.includes(tag)).length > 0 && (
                     <div className="flex flex-wrap gap-2">
                       {uploadTags.filter(tag => !presetTags.includes(tag)).map(tag => (
@@ -646,6 +687,30 @@ export default function CharacterLibrary() {
                         #{tag}
                       </button>
                     ))}
+                  </div>
+                  
+                  {/* 自定义标签输入 */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={editCustomTag}
+                      onChange={(e) => setEditCustomTag(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addEditCustomTag()
+                        }
+                      }}
+                      placeholder="输入自定义标签，按回车添加"
+                      className="flex-1 px-3 py-1 border rounded text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={addEditCustomTag}
+                      className="px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
+                    >
+                      添加
+                    </button>
                   </div>
                   
                   {editingCharacter.tags && editingCharacter.tags.filter(tag => !presetTags.includes(tag)).length > 0 && (
