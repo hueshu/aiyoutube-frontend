@@ -1480,8 +1480,9 @@ const StoryboardWorkspace: React.FC = () => {
                           <textarea
                             value={editedPrompt}
                             onChange={(e) => setEditedPrompt(e.target.value)}
-                            className="flex-1 border rounded px-2 py-1 text-sm resize-none leading-relaxed min-h-[1.5rem]"
-                            style={{ height: 'auto', minHeight: '1.5rem' }}
+                            className="flex-1 border rounded px-2 py-1 text-sm resize-vertical leading-relaxed"
+                            rows={12}
+                            style={{ minHeight: '200px', maxHeight: '600px' }}
                             autoFocus
                           />
                           <div className="flex flex-col space-y-1">
