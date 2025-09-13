@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useStore } from '../store'
 import { API_URL } from '../config/api'
-import { Upload, Edit2, Trash2, Eye, Plus, Download, Maximize2, X } from 'lucide-react'
+import { Upload, Edit2, Trash2, Eye, Plus, Download, Maximize2, X, Settings } from 'lucide-react'
 
 interface Character {
   id: number
@@ -20,12 +20,15 @@ export default function CharacterLibrary() {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
+  const [showCategoryModal, setShowCategoryModal] = useState(false)
   const [editingCharacter, setEditingCharacter] = useState<Character | null>(null)
   const [previewCharacter, setPreviewCharacter] = useState<Character | null>(null)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [newCategory, setNewCategory] = useState('')
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<string | null>(null)
+  const [editingCategoryName, setEditingCategoryName] = useState('')
   
   // Form states for upload
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -84,7 +87,9 @@ export default function CharacterLibrary() {
       })
       if (response.ok) {
         const data = await response.json()
-        setCategories(['全部', ...data.categories, '未分类'])
+        // 过滤掉"未分类"，避免重复
+        const filteredCategories = data.categories.filter((cat: string) => cat !== '未分类')
+        setCategories(['全部', ...filteredCategories, '未分类'])
       }
     } catch (error) {
       console.error('Failed to fetch categories:', error)
@@ -282,6 +287,113 @@ export default function CharacterLibrary() {
     }
   }
 
+  const handleAddCategory = async () => {
+    if (!newCategory || categories.includes(newCategory)) {
+      if (categories.includes(newCategory)) {
+        alert('该分类已存在')
+      }
+      return
+    }
+    
+    try {
+      const response = await fetch(`${API_URL}/characters/categories`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user?.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: newCategory })
+      })
+      
+      if (response.ok) {
+        setCategories([...categories.slice(0, -1), newCategory, '未分类'])
+        setNewCategory('')
+        alert('分类添加成功')
+      } else {
+        const data = await response.json()
+        alert(data.error || '添加失败')
+      }
+    } catch (error) {
+      console.error('Failed to add category:', error)
+      alert('添加失败')
+    }
+  }
+  
+  const handleRenameCategory = async (oldName: string) => {
+    if (!editingCategoryName || editingCategoryName === oldName) {
+      setEditingCategory(null)
+      setEditingCategoryName('')
+      return
+    }
+    
+    if (categories.includes(editingCategoryName)) {
+      alert('该分类名已存在')
+      return
+    }
+    
+    try {
+      const response = await fetch(`${API_URL}/characters/categories/${encodeURIComponent(oldName)}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${user?.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ newName: editingCategoryName })
+      })
+      
+      if (response.ok) {
+        const updatedCategories = categories.map(c => 
+          c === oldName ? editingCategoryName : c
+        )
+        setCategories(updatedCategories)
+        if (selectedCategory === oldName) {
+          setSelectedCategory(editingCategoryName)
+        }
+        setEditingCategory(null)
+        setEditingCategoryName('')
+        await fetchCharacters()
+        alert('分类重命名成功')
+      } else {
+        const data = await response.json()
+        alert(data.error || '重命名失败')
+      }
+    } catch (error) {
+      console.error('Failed to rename category:', error)
+      alert('重命名失败')
+    }
+  }
+  
+  const handleDeleteCategory = async (categoryName: string) => {
+    if (!confirm(`确定要删除分类"${categoryName}"吗？该分类下的所有角色将被移至"未分类"。`)) {
+      return
+    }
+    
+    try {
+      const response = await fetch(`${API_URL}/characters/categories/${encodeURIComponent(categoryName)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${user?.token}`
+        }
+      })
+      
+      if (response.ok) {
+        const updatedCategories = categories.filter(c => c !== categoryName)
+        setCategories(updatedCategories)
+        if (selectedCategory === categoryName) {
+          setSelectedCategory('全部')
+        }
+        await fetchCharacters()
+        alert('分类删除成功')
+      } else {
+        const data = await response.json()
+        alert(data.error || '删除失败')
+      }
+    } catch (error) {
+      console.error('Failed to delete category:', error)
+      alert('删除失败')
+    }
+  }
+
   // Tag handling functions
   const toggleTag = (tag: string) => {
     if (uploadTags.includes(tag)) {
@@ -329,7 +441,8 @@ export default function CharacterLibrary() {
       </div>
 
       <div className="mb-6 border-b border-gray-200">
-        <nav className="-mb-px flex space-x-4 overflow-x-auto">
+        <div className="flex items-center justify-between mb-2">
+          <nav className="-mb-px flex space-x-4 overflow-x-auto flex-1">
           {categories.map((category) => (
             <button
               key={category}
@@ -343,7 +456,16 @@ export default function CharacterLibrary() {
               {category}
             </button>
           ))}
-        </nav>
+          </nav>
+          <button
+            onClick={() => setShowCategoryModal(true)}
+            className="ml-4 px-3 py-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded flex items-center gap-1"
+            title="管理分类"
+          >
+            <Settings size={16} />
+            分类管理
+          </button>
+        </div>
       </div>
 
       {initialLoading ? (
@@ -734,6 +856,123 @@ export default function CharacterLibrary() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Category Management Modal */}
+      {showCategoryModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 max-h-[80vh] overflow-y-auto">
+            <h3 className="text-lg font-bold mb-4">分类管理</h3>
+            
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium">添加新分类</label>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCategory}
+                  onChange={(e) => setNewCategory(e.target.value)}
+                  placeholder="输入分类名称"
+                  className="flex-1 px-3 py-2 border rounded"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && newCategory) {
+                      handleAddCategory()
+                    }
+                  }}
+                />
+                <button
+                  onClick={handleAddCategory}
+                  disabled={!newCategory}
+                  className="px-3 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+                >
+                  添加
+                </button>
+              </div>
+            </div>
+            
+            <div className="mb-4">
+              <label className="text-sm font-medium mb-2 block">现有分类</label>
+              <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                {categories.filter(c => c !== '全部' && c !== '未分类').map(category => (
+                  <div key={category} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                    {editingCategory === category ? (
+                      <>
+                        <input
+                          type="text"
+                          value={editingCategoryName}
+                          onChange={(e) => setEditingCategoryName(e.target.value)}
+                          className="flex-1 px-2 py-1 border rounded mr-2"
+                          autoFocus
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              handleRenameCategory(category)
+                            }
+                          }}
+                        />
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => handleRenameCategory(category)}
+                            className="px-2 py-1 bg-blue-500 text-white rounded text-sm hover:bg-blue-600"
+                          >
+                            保存
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingCategory(null)
+                              setEditingCategoryName('')
+                            }}
+                            className="px-2 py-1 bg-gray-300 text-gray-700 rounded text-sm hover:bg-gray-400"
+                          >
+                            取消
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <span className="flex-1">{category}</span>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => {
+                              setEditingCategory(category)
+                              setEditingCategoryName(category)
+                            }}
+                            className="px-2 py-1 bg-blue-200 hover:bg-blue-300 rounded text-sm"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteCategory(category)}
+                            className="px-2 py-1 bg-red-200 hover:bg-red-300 rounded text-sm"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+                {categories.filter(c => c !== '全部' && c !== '未分类').length === 0 && (
+                  <p className="text-gray-500 text-center py-4">暂无自定义分类</p>
+                )}
+              </div>
+            </div>
+            
+            <div className="flex justify-end">
+              <button
+                onClick={() => {
+                  setShowCategoryModal(false)
+                  setEditingCategory(null)
+                  setEditingCategoryName('')
+                  setNewCategory('')
+                }}
+                className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded"
+              >
+                关闭
+              </button>
+            </div>
           </div>
         </div>
       )}

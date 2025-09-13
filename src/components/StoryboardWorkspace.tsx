@@ -26,6 +26,7 @@ interface ScriptFrame {
   error?: string;
   progress?: string; // Add progress field for showing generation status
   costume?: string[];  // Store selected costume items
+  translatedPrompt?: string;  // Store translated prompt for batch processing
 }
 
 interface AIStyle {
@@ -84,6 +85,8 @@ const StoryboardWorkspace: React.FC = () => {
   }>({ isDownloading: false, current: 0, total: 0 });
   const [styleModalOpen, setStyleModalOpen] = useState(false);
   const [selectedStyle, setSelectedStyle] = useState<AIStyle | null>(null);
+  const [translationOption, setTranslationOption] = useState<'none' | 'translate'>('none');
+  const [isTranslating, setIsTranslating] = useState(false);
   const aiStyles = aiStylesData.ai_video_styles.categories as StyleCategory[];
 
   useEffect(() => {
@@ -341,7 +344,14 @@ const StoryboardWorkspace: React.FC = () => {
     setGeneratingFrames(prev => new Set(prev).add(frameNumber));
     
     try {
-      const processedPrompt = processPrompt(frame);
+      let processedPrompt = processPrompt(frame);
+      
+      // Translate prompt if translation is enabled
+      if (translationOption === 'translate') {
+        setIsTranslating(true);
+        processedPrompt = await translateToEnglish(processedPrompt);
+        setIsTranslating(false);
+      }
       
       // Use originalPrompt if available, otherwise use current prompt
       const promptToCheck = frame.originalPrompt || frame.prompt;
@@ -502,6 +512,64 @@ const StoryboardWorkspace: React.FC = () => {
     }
   };
 
+
+  // Translate text to English
+  const translateToEnglish = async (text: string): Promise<string> => {
+    if (!text || translationOption !== 'translate') {
+      return text;
+    }
+
+    try {
+      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/translate', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text })
+      });
+
+      if (!response.ok) {
+        console.error('Translation failed:', response.status);
+        return text; // Return original text if translation fails
+      }
+
+      const data = await response.json();
+      return data.translatedText || text;
+    } catch (error) {
+      console.error('Translation error:', error);
+      return text; // Return original text on error
+    }
+  };
+
+  // Translate batch of texts
+  const translateBatch = async (texts: string[]): Promise<string[]> => {
+    if (translationOption !== 'translate') {
+      return texts;
+    }
+
+    try {
+      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/translate', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ texts })
+      });
+
+      if (!response.ok) {
+        console.error('Batch translation failed:', response.status);
+        return texts; // Return original texts if translation fails
+      }
+
+      const data = await response.json();
+      return data.translatedTexts || texts;
+    } catch (error) {
+      console.error('Batch translation error:', error);
+      return texts; // Return original texts on error
+    }
+  };
 
   // Poll for generation status
   const pollGenerationStatus = async (frameNumber: number, taskId: string) => {
@@ -697,11 +765,30 @@ const StoryboardWorkspace: React.FC = () => {
       // Set initial batch progress
       setBatchProgress({ current: 0, total: framesToGenerate.length, currentFrame: 0 });
       
+      // Translate prompts if translation is enabled
+      let framesToProcess = framesToGenerate;
+      if (translationOption === 'translate') {
+        setIsTranslating(true);
+        console.log('Translating prompts...');
+        
+        // Process prompts and translate them
+        const processedPrompts = framesToGenerate.map(frame => processPrompt(frame));
+        const translatedPrompts = await translateBatch(processedPrompts);
+        
+        // Update frames with translated prompts
+        framesToProcess = framesToGenerate.map((frame, index) => ({
+          ...frame,
+          translatedPrompt: translatedPrompts[index]
+        }));
+        
+        setIsTranslating(false);
+      }
+      
       // Step 1: Submit all generation requests at once
       console.log('Submitting all generation requests...');
-      const taskPromises = framesToGenerate.map(async (frame) => {
+      const taskPromises = framesToProcess.map(async (frame) => {
         try {
-          const processedPrompt = processPrompt(frame);
+          const processedPrompt = frame.translatedPrompt || processPrompt(frame);
           console.log(`Submitting frame ${frame.frame_number} with prompt:`, processedPrompt);
           
           // Get all character images for this specific frame
@@ -1147,7 +1234,7 @@ const StoryboardWorkspace: React.FC = () => {
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-2xl font-bold mb-4">分镜工作台</h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">选择脚本</label>
             <select
@@ -1191,7 +1278,14 @@ const StoryboardWorkspace: React.FC = () => {
             <label className="block text-sm font-medium mb-2">AI模型</label>
             <select
               value={model}
-              onChange={(e) => setModel(e.target.value as any)}
+              onChange={(e) => {
+                const newModel = e.target.value as any;
+                setModel(newModel);
+                // Auto-select translation for Gemini model
+                if (newModel === 'gemini-2.5-flash-image-preview') {
+                  setTranslationOption('translate');
+                }
+              }}
               className="w-full border rounded px-3 py-2"
             >
               <option value="sora_image">Sora Image</option>
@@ -1210,6 +1304,18 @@ const StoryboardWorkspace: React.FC = () => {
               </span>
               <Palette className="w-4 h-4 text-gray-500" />
             </button>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">是否翻译</label>
+            <select
+              value={translationOption}
+              onChange={(e) => setTranslationOption(e.target.value as 'none' | 'translate')}
+              className="w-full border rounded px-3 py-2"
+            >
+              <option value="none">不翻译</option>
+              <option value="translate">翻译</option>
+            </select>
           </div>
         </div>
       </div>
@@ -1523,10 +1629,10 @@ const StoryboardWorkspace: React.FC = () => {
               </button>
               <button
                 onClick={generateAllImages}
-                disabled={loading || !imageSize}
+                disabled={loading || !imageSize || isTranslating}
                 className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50"
               >
-                {loading ? (batchProgress ? `生成中 (${batchProgress.current + 1}/${batchProgress.total})` : '生成中...') : '批量生成分镜图'}
+                {isTranslating ? '翻译中...' : loading ? (batchProgress ? `生成中 (${batchProgress.current + 1}/${batchProgress.total})` : '生成中...') : '批量生成分镜图'}
               </button>
               {scriptFrames.some(f => f.generated_image) && (
                 <button
