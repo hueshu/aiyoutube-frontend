@@ -313,16 +313,57 @@ const StoryboardWorkspace: React.FC = () => {
   const processPrompt = (frame: ScriptFrame): string => {
     // Use the display prompt (with replacements) which may have been edited by user
     let processedPrompt = getDisplayPrompt(frame);
-    
+
     // Add image size to prompt on a new line
     if (imageSize) {
       processedPrompt += `\n${imageSize}`;
     }
-    
+
     // Add character name instruction on a new line
     processedPrompt += '\n角色的参考图就是图片文件名与角色名称一样的图片';
-    
+
+    // Add Gemini-specific prompt for aspect ratio template
+    if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
+      processedPrompt += '\nBased on the reference image and following the prompt, generate new content while strictly maintaining the aspect ratio of the ratio template (last image). Fill the entire canvas of the ratio template with relevant content, completely removing its original appearance.\nImportant: Extend or adapt the generated content to perfectly fit the aspect ratio template provided, ensuring no traces of the template remain visible.';
+    }
+
     return processedPrompt;
+  };
+
+  // Helper function to get ratio template filename
+  const getRatioTemplateFilename = (imageSize: string): string | null => {
+    const ratioMap: Record<string, string> = {
+      '[1:1]': '1_1_ratio_template.jpg',
+      '[16:9]': '16_9_ratio_template.jpg',
+      '[4:3]': '4_3_ratio_template.jpg',
+      '[3:2]': '3_2_ratio_template.jpg',
+      '[9:16]': '9_16_ratio_template.jpg',
+      '[3:4]': '3_4_ratio_template.jpg',
+      '[2:3]': '2_3_ratio_template.jpg'
+    };
+    return ratioMap[imageSize] || null;
+  };
+
+  // Helper function to convert image file to base64
+  const imageFileToBase64 = async (filePath: string): Promise<string> => {
+    try {
+      const response = await fetch(filePath);
+      const blob = await response.blob();
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64String = reader.result as string;
+          // Remove the data URL prefix, keep only the base64 string
+          const base64Data = base64String.split(',')[1];
+          resolve(base64Data);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error('Error converting image to base64:', error);
+      throw error;
+    }
   };
 
   // Helper function to get auth token
@@ -385,23 +426,41 @@ const StoryboardWorkspace: React.FC = () => {
       });
       
       console.log('Character image URLs to send:', characterImageUrls);
-      
+
+      // For Gemini model, add ratio template image
+      if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
+        const templateFilename = getRatioTemplateFilename(imageSize);
+        if (templateFilename) {
+          try {
+            const templatePath = `/ratio_templates/${templateFilename}`;
+            console.log('Loading ratio template:', templatePath);
+            const base64Image = await imageFileToBase64(templatePath);
+            // Add the template image to the end of the array
+            characterImageUrls.push(base64Image);
+            console.log('Added ratio template image for aspect ratio:', imageSize);
+          } catch (error) {
+            console.error('Error loading ratio template:', error);
+            // Continue without template if loading fails
+          }
+        }
+      }
+
       // Create AbortController with 10 minute timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 minutes
-      
+
       // Prepare request body based on whether we have character images
       const requestBody: any = {
         prompt: processedPrompt,
         image_size: imageSize,  // Keep brackets for image size
         model: model
       };
-      
-      // Add character images if available
+
+      // Add character images if available (including ratio template for Gemini)
       if (characterImageUrls.length > 0) {
         requestBody.character_image_urls = characterImageUrls;  // Send as array
       }
-      
+
       console.log('Request body:', requestBody);
       
       const response = await fetch(`${API_URL}/generation/single`, {
@@ -1266,11 +1325,17 @@ const StoryboardWorkspace: React.FC = () => {
               className="w-full border rounded px-3 py-2"
             >
               <option value="">请选择尺寸</option>
-              <option value="[16:9]">[16:9]</option>
-              <option value="[3:2]">[3:2]</option>
-              <option value="[1:1]">[1:1]</option>
-              <option value="[9:16]">[9:16]</option>
-              <option value="[2:3]">[2:3]</option>
+              <option value="[1:1]">[1:1] 正方形</option>
+              <optgroup label="横屏">
+                <option value="[16:9]">[16:9]</option>
+                <option value="[4:3]">[4:3]</option>
+                <option value="[3:2]">[3:2]</option>
+              </optgroup>
+              <optgroup label="竖屏">
+                <option value="[9:16]">[9:16]</option>
+                <option value="[3:4]">[3:4]</option>
+                <option value="[2:3]">[2:3]</option>
+              </optgroup>
             </select>
           </div>
           
