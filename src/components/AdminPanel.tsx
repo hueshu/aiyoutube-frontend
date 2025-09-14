@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { Users, BarChart, UserPlus, Trash2, Edit, Shield, Activity } from 'lucide-react';
+import { Users, BarChart, UserPlus, Trash2, Edit, Shield, Activity, Eye, EyeOff, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface User {
   id: number;
@@ -41,6 +41,33 @@ interface SystemStats {
   }>;
 }
 
+// Toast组件
+const Toast: React.FC<{ message: string; type: 'success' | 'error' | 'info'; onClose: () => void }> = ({ message, type, onClose }) => {
+  useEffect(() => {
+    const timer = setTimeout(onClose, 3000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+
+  const icons = {
+    success: <CheckCircle className="w-5 h-5" />,
+    error: <XCircle className="w-5 h-5" />,
+    info: <AlertCircle className="w-5 h-5" />
+  };
+
+  const colors = {
+    success: 'bg-green-500',
+    error: 'bg-red-500',
+    info: 'bg-blue-500'
+  };
+
+  return (
+    <div className={`fixed top-4 right-4 ${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2 z-50 animate-slide-in`}>
+      {icons[type]}
+      <span>{message}</span>
+    </div>
+  );
+};
+
 const AdminPanel: React.FC = () => {
   const { user } = useAuthStore();
   const [users, setUsers] = useState<User[]>([]);
@@ -49,8 +76,12 @@ const AdminPanel: React.FC = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const [activeTab, setActiveTab] = useState<'users' | 'stats'>('users');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -61,6 +92,17 @@ const AdminPanel: React.FC = () => {
     is_active: true
   });
 
+  const [formErrors, setFormErrors] = useState({
+    username: '',
+    password: '',
+    confirmPassword: ''
+  });
+
+  // 显示Toast消息
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type });
+  };
+
   useEffect(() => {
     if (user?.role === 'admin') {
       fetchUsers();
@@ -69,19 +111,25 @@ const AdminPanel: React.FC = () => {
   }, [user]);
 
   const fetchUsers = async () => {
+    setLoadingUsers(true);
     try {
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users?search=${searchTerm}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setUsers(data.users || []);
+      } else {
+        showToast('获取用户列表失败', 'error');
       }
     } catch (error) {
       console.error('Failed to fetch users:', error);
+      showToast('网络错误，请稍后重试', 'error');
+    } finally {
+      setLoadingUsers(false);
     }
   };
 
@@ -102,7 +150,41 @@ const AdminPanel: React.FC = () => {
     }
   };
 
+  // 验证表单
+  const validateForm = () => {
+    const errors = {
+      username: '',
+      password: '',
+      confirmPassword: ''
+    };
+
+    if (!formData.username) {
+      errors.username = '用户名不能为空';
+    } else if (formData.username.length < 3) {
+      errors.username = '用户名至少3个字符';
+    }
+
+    if (isCreateModalOpen || formData.password) {
+      if (!formData.password) {
+        errors.password = '密码不能为空';
+      } else if (formData.password.length < 6) {
+        errors.password = '密码至少6个字符';
+      }
+
+      if (isCreateModalOpen && formData.password !== confirmPassword) {
+        errors.confirmPassword = '两次密码输入不一致';
+      }
+    }
+
+    setFormErrors(errors);
+    return !errors.username && !errors.password && !errors.confirmPassword;
+  };
+
   const createUser = async () => {
+    if (!validateForm()) {
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users', {
@@ -113,19 +195,19 @@ const AdminPanel: React.FC = () => {
         },
         body: JSON.stringify(formData)
       });
-      
+
       if (response.ok) {
         await fetchUsers();
         setIsCreateModalOpen(false);
         resetForm();
-        alert('用户创建成功');
+        showToast('用户创建成功', 'success');
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to create user');
+        showToast(error.error || '创建用户失败', 'error');
       }
     } catch (error) {
       console.error('Failed to create user:', error);
-      alert('Failed to create user');
+      showToast('网络错误，请稍后重试', 'error');
     } finally {
       setLoading(false);
     }
@@ -133,7 +215,11 @@ const AdminPanel: React.FC = () => {
 
   const updateUser = async () => {
     if (!selectedUser) return;
-    
+
+    if (!validateForm()) {
+      return;
+    }
+
     setLoading(true);
     try {
       const updateData: any = {
@@ -142,11 +228,11 @@ const AdminPanel: React.FC = () => {
         usage_limit: formData.usage_limit,
         is_active: formData.is_active
       };
-      
+
       if (formData.password) {
         updateData.password = formData.password;
       }
-      
+
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users/${selectedUser.id}`, {
         method: 'PUT',
         headers: {
@@ -155,27 +241,27 @@ const AdminPanel: React.FC = () => {
         },
         body: JSON.stringify(updateData)
       });
-      
+
       if (response.ok) {
         await fetchUsers();
         setIsEditModalOpen(false);
         resetForm();
-        alert('用户更新成功');
+        showToast('用户更新成功', 'success');
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to update user');
+        showToast(error.error || '更新用户失败', 'error');
       }
     } catch (error) {
       console.error('Failed to update user:', error);
-      alert('Failed to update user');
+      showToast('网络错误，请稍后重试', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const deleteUser = async (userId: number) => {
-    if (!confirm('确定要删除该用户吗？此操作不可恢复。')) return;
-    
+  const deleteUser = async (userId: number, username: string) => {
+    if (!confirm(`确定要删除用户 "${username}" 吗？\n\n此操作不可恢复，该用户的所有数据将被永久删除。`)) return;
+
     try {
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users/${userId}`, {
         method: 'DELETE',
@@ -183,17 +269,17 @@ const AdminPanel: React.FC = () => {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
-      
+
       if (response.ok) {
         await fetchUsers();
-        alert('用户删除成功');
+        showToast(`用户 "${username}" 已删除`, 'success');
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to delete user');
+        showToast(error.error || '删除用户失败', 'error');
       }
     } catch (error) {
       console.error('Failed to delete user:', error);
-      alert('Failed to delete user');
+      showToast('网络错误，请稍后重试', 'error');
     }
   };
 
@@ -204,6 +290,13 @@ const AdminPanel: React.FC = () => {
       role: 'user',
       usage_limit: 1000,
       is_active: true
+    });
+    setConfirmPassword('');
+    setShowPassword(false);
+    setFormErrors({
+      username: '',
+      password: '',
+      confirmPassword: ''
     });
     setSelectedUser(null);
   };
@@ -257,14 +350,23 @@ const AdminPanel: React.FC = () => {
         {activeTab === 'users' && (
           <div>
             <div className="flex justify-between items-center mb-4">
-              <input
-                type="text"
-                placeholder="搜索用户..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && fetchUsers()}
-                className="border rounded px-3 py-2 w-64"
-              />
+              <div className="flex items-center space-x-2">
+                <input
+                  type="text"
+                  placeholder="搜索用户名（按回车搜索）..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && fetchUsers()}
+                  className="border rounded px-3 py-2 w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={fetchUsers}
+                  className="p-2 text-gray-600 hover:text-blue-600 transition-colors"
+                  title="刷新"
+                >
+                  <RefreshCw className={`w-5 h-5 ${loadingUsers ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
               <button
                 onClick={() => setIsCreateModalOpen(true)}
                 className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 flex items-center"
@@ -275,6 +377,17 @@ const AdminPanel: React.FC = () => {
             </div>
 
             <div className="overflow-x-auto">
+              {loadingUsers ? (
+                <div className="flex justify-center items-center py-20">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                </div>
+              ) : users.length === 0 ? (
+                <div className="text-center py-20 text-gray-500">
+                  <Users className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                  <p>暂无用户数据</p>
+                  {searchTerm && <p className="mt-2 text-sm">试试其他搜索关键词</p>}
+                </div>
+              ) : (
               <table className="w-full border-collapse">
                 <thead>
                   <tr className="border-b">
@@ -323,8 +436,9 @@ const AdminPanel: React.FC = () => {
                             <Edit className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => deleteUser(user.id)}
+                            onClick={() => deleteUser(user.id, user.username)}
                             className="text-red-500 hover:text-red-700"
+                            title="删除用户"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -334,6 +448,7 @@ const AdminPanel: React.FC = () => {
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
           </div>
         )}
@@ -422,28 +537,79 @@ const AdminPanel: React.FC = () => {
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">用户名</label>
+                <label className="block text-sm font-medium mb-1">用户名 <span className="text-red-500">*</span></label>
                 <input
                   type="text"
                   value={formData.username}
-                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  placeholder="输入用户名"
+                  onChange={(e) => {
+                    setFormData({ ...formData, username: e.target.value });
+                    setFormErrors({ ...formErrors, username: '' });
+                  }}
+                  className={`w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 ${formErrors.username ? 'border-red-500' : ''}`}
+                  placeholder="输入用户名（至少3个字符）"
                 />
+                {formErrors.username && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.username}</p>
+                )}
               </div>
               
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  密码 {isEditModalOpen && '(留空保持不变)'}
+                  密码 {isCreateModalOpen && <span className="text-red-500">*</span>} {isEditModalOpen && <span className="text-gray-500 text-xs">(留空保持不变)</span>}
                 </label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full border rounded px-3 py-2"
-                  placeholder={isEditModalOpen ? '留空保持不变' : '输入密码'}
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={(e) => {
+                      setFormData({ ...formData, password: e.target.value });
+                      setFormErrors({ ...formErrors, password: '' });
+                    }}
+                    className={`w-full border rounded px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 ${formErrors.password ? 'border-red-500' : ''}`}
+                    placeholder={isEditModalOpen ? '留空保持不变' : '输入密码（至少6个字符）'}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+                {formErrors.password && (
+                  <p className="text-red-500 text-xs mt-1">{formErrors.password}</p>
+                )}
               </div>
+
+              {isCreateModalOpen && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    确认密码 <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        setFormErrors({ ...formErrors, confirmPassword: '' });
+                      }}
+                      className={`w-full border rounded px-3 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 ${formErrors.confirmPassword ? 'border-red-500' : ''}`}
+                      placeholder="再次输入密码"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+                  {formErrors.confirmPassword && (
+                    <p className="text-red-500 text-xs mt-1">{formErrors.confirmPassword}</p>
+                  )}
+                </div>
+              )}
               
               <div>
                 <label className="block text-sm font-medium mb-1">角色</label>
@@ -494,14 +660,31 @@ const AdminPanel: React.FC = () => {
               </button>
               <button
                 onClick={isCreateModalOpen ? createUser : updateUser}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                disabled={loading || !formData.username || (isCreateModalOpen && !formData.password)}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                disabled={loading}
               >
-                {loading ? '处理中...' : (isCreateModalOpen ? '创建' : '保存')}
+                {loading ? (
+                  <span className="flex items-center">
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    处理中...
+                  </span>
+                ) : (isCreateModalOpen ? '创建用户' : '保存修改')}
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Toast消息 */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
       )}
     </div>
   );
