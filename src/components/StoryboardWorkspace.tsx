@@ -344,26 +344,14 @@ const StoryboardWorkspace: React.FC = () => {
     return ratioMap[imageSize] || null;
   };
 
-  // Helper function to convert image file to base64
-  const imageFileToBase64 = async (filePath: string): Promise<string> => {
-    try {
-      const response = await fetch(filePath);
-      const blob = await response.blob();
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64String = reader.result as string;
-          // Remove the data URL prefix, keep only the base64 string
-          const base64Data = base64String.split(',')[1];
-          resolve(base64Data);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } catch (error) {
-      console.error('Error converting image to base64:', error);
-      throw error;
-    }
+  // Helper function to get the full URL for ratio template
+  const getRatioTemplateUrl = (imageSize: string): string | null => {
+    const templateFilename = getRatioTemplateFilename(imageSize);
+    if (!templateFilename) return null;
+
+    // Return the full URL for the ratio template
+    // In production, this will be served from the same domain
+    return `${window.location.origin}/ratio_templates/${templateFilename}`;
   };
 
   // Helper function to get auth token
@@ -427,21 +415,13 @@ const StoryboardWorkspace: React.FC = () => {
       
       console.log('Character image URLs to send:', characterImageUrls);
 
-      // For Gemini model, add ratio template image
+      // For Gemini model, add ratio template image URL
       if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
-        const templateFilename = getRatioTemplateFilename(imageSize);
-        if (templateFilename) {
-          try {
-            const templatePath = `/ratio_templates/${templateFilename}`;
-            console.log('Loading ratio template:', templatePath);
-            const base64Image = await imageFileToBase64(templatePath);
-            // Add the template image to the end of the array
-            characterImageUrls.push(base64Image);
-            console.log('Added ratio template image for aspect ratio:', imageSize);
-          } catch (error) {
-            console.error('Error loading ratio template:', error);
-            // Continue without template if loading fails
-          }
+        const templateUrl = getRatioTemplateUrl(imageSize);
+        if (templateUrl) {
+          // Add the template URL to the end of the array, same as character images
+          characterImageUrls.push(templateUrl);
+          console.log('Added ratio template URL for aspect ratio:', imageSize, templateUrl);
         }
       }
 
