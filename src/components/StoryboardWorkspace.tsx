@@ -836,14 +836,23 @@ const StoryboardWorkspace: React.FC = () => {
           });
           
           console.log(`Frame ${frame.frame_number} character image URLs:`, frameCharacterImageUrls);
-          
+
+          // For Gemini model, add ratio template image URL
+          if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
+            const templateUrl = getRatioTemplateUrl(imageSize);
+            if (templateUrl) {
+              frameCharacterImageUrls.push(templateUrl);
+              console.log(`Frame ${frame.frame_number} added ratio template URL for aspect ratio:`, imageSize, templateUrl);
+            }
+          }
+
           setGeneratingFrames(prev => new Set(prev).add(frame.frame_number));
-          setScriptFrames(prev => prev.map(f => 
-            f.frame_number === frame.frame_number 
+          setScriptFrames(prev => prev.map(f =>
+            f.frame_number === frame.frame_number
               ? { ...f, status: 'generating', progress: '提交中...' }
               : f
           ));
-          
+
           const response = await fetch(`${API_URL}/generation/single`, {
             method: 'POST',
             headers: {
