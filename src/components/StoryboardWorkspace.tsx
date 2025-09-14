@@ -324,7 +324,7 @@ const StoryboardWorkspace: React.FC = () => {
 
     // Add Gemini-specific prompt for aspect ratio template
     if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
-      processedPrompt += '\nBased on the reference image and following the prompt, generate new content while strictly maintaining the aspect ratio of the ratio template (last image). Fill the entire canvas of the ratio template with relevant content, completely removing its original appearance.\nImportant: Extend or adapt the generated content to perfectly fit the aspect ratio template provided, ensuring no traces of the template remain visible.';
+      processedPrompt += '\nBased on the reference image and following the prompt , generate new content while strictly maintaining the aspect ratio of the ratio template (last image). Fill the entire canvas of the ratio template with relevant content, completely removing its original appearance.\nImportant: Extend or adapt the generated content to perfectly fit the aspect ratio template provided, ensuring no traces of the template remain visible.';
     }
 
     return processedPrompt;
@@ -1089,13 +1089,22 @@ const StoryboardWorkspace: React.FC = () => {
     if (downloadProgress.isDownloading) {
       return;
     }
-    
-    // Filter frames that have generated images
-    const completedFrames = scriptFrames.filter(f => f.generated_images && f.generated_images.length > 0);
-    
-    const totalImages = completedFrames.reduce((sum, frame) => 
-      sum + (frame.generated_images?.length || 0), 0);
-    
+
+    // Filter frames that have generated images (check both generated_images array and generated_image field)
+    const completedFrames = scriptFrames.filter(f =>
+      (f.generated_images && f.generated_images.length > 0) || f.generated_image
+    );
+
+    // Calculate total images (handle both formats)
+    const totalImages = completedFrames.reduce((sum, frame) => {
+      if (frame.generated_images && frame.generated_images.length > 0) {
+        return sum + frame.generated_images.length;
+      } else if (frame.generated_image) {
+        return sum + 1;
+      }
+      return sum;
+    }, 0);
+
     if (totalImages === 0) {
       alert('没有可下载的图片');
       return;
@@ -1115,29 +1124,30 @@ const StoryboardWorkspace: React.FC = () => {
       let processedCount = 0;
       
       for (const frame of completedFrames) {
+        // Handle frames with generated_images array
         if (frame.generated_images && frame.generated_images.length > 0) {
           for (let index = 0; index < frame.generated_images.length; index++) {
             const imageUrl = frame.generated_images[index];
             // Format frame number as 3-digit with leading zeros (001, 002, etc.)
             const frameNumber = String(frame.frame_number).padStart(3, '0');
-            const filename = frame.generated_images.length === 1 
+            const filename = frame.generated_images.length === 1
               ? `${frameNumber}.jpg`
               : `${frameNumber}-${index + 1}.jpg`;
-            
+
             try {
               // Fetch the image
               const response = await fetch(imageUrl);
-              
+
               if (!response.ok) {
                 console.error(`Failed to fetch image: ${filename}`);
                 continue;
               }
-              
+
               const blob = await response.blob();
-              
+
               // Add to zip
               zip.file(filename, blob);
-              
+
               processedCount++;
               // Update progress
               setDownloadProgress({ isDownloading: true, current: processedCount, total: totalImages });
@@ -1145,6 +1155,34 @@ const StoryboardWorkspace: React.FC = () => {
             } catch (error) {
               console.error(`Error processing ${filename}:`, error);
             }
+          }
+        }
+        // Handle frames with only generated_image field (backward compatibility)
+        else if (frame.generated_image) {
+          const imageUrl = frame.generated_image;
+          const frameNumber = String(frame.frame_number).padStart(3, '0');
+          const filename = `${frameNumber}.jpg`;
+
+          try {
+            // Fetch the image
+            const response = await fetch(imageUrl);
+
+            if (!response.ok) {
+              console.error(`Failed to fetch image: ${filename}`);
+              continue;
+            }
+
+            const blob = await response.blob();
+
+            // Add to zip
+            zip.file(filename, blob);
+
+            processedCount++;
+            // Update progress
+            setDownloadProgress({ isDownloading: true, current: processedCount, total: totalImages });
+            console.log(`已处理: ${processedCount}/${totalImages} - ${filename}`);
+          } catch (error) {
+            console.error(`Error processing ${filename}:`, error);
           }
         }
       }
