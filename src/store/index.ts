@@ -1,12 +1,6 @@
 import { create } from 'zustand'
 import { API_URL } from '../config/api'
 
-interface User {
-  id: number
-  username: string
-  role: 'admin' | 'user'
-  token: string
-}
 
 interface Script {
   id: number
@@ -31,10 +25,8 @@ interface Character {
 }
 
 interface Store {
-  user: User | null
   scripts: Script[]
   characters: Character[]
-  setUser: (user: User | null) => void
   setScripts: (scripts: Script[]) => void
   setCharacters: (characters: Character[]) => void
   fetchScripts: () => Promise<void>
@@ -42,17 +34,15 @@ interface Store {
 }
 
 export const useStore = create<Store>((set, get) => ({
-  user: null,
   scripts: [],
   characters: [],
-  
-  setUser: (user) => set({ user }),
+
   setScripts: (scripts) => set({ scripts }),
   setCharacters: (characters) => set({ characters }),
   
   fetchScripts: async () => {
-    // Try to get token from localStorage first, then from user
-    const token = localStorage.getItem('token') || get().user?.token
+    // Get token from localStorage
+    const token = localStorage.getItem('token')
     if (!token) {
       console.log('No token available, cannot fetch scripts');
       return
@@ -82,8 +72,8 @@ export const useStore = create<Store>((set, get) => ({
   },
   
   fetchCharacters: async () => {
-    // Try to get token from localStorage first, then from user
-    const token = localStorage.getItem('token') || get().user?.token
+    // Get token from localStorage
+    const token = localStorage.getItem('token')
     if (!token) {
       console.log('No token available, cannot fetch characters')
       return

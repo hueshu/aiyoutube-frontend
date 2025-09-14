@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useStore } from '../store';
+import { useStore } from '../store'
+import { useAuthStore } from '../store/authStore';
 import { Folder, Plus, Trash2, Edit, Play, Download, Eye } from 'lucide-react';
 
 interface Project {
@@ -27,7 +28,8 @@ interface GenerationTask {
 }
 
 const ProjectsManager: React.FC = () => {
-  const { user, scripts, characters, fetchScripts, fetchCharacters } = useStore();
+  const { scripts, characters, fetchScripts, fetchCharacters } = useStore();
+  const { user } = useAuthStore();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -65,7 +67,7 @@ const ProjectsManager: React.FC = () => {
     try {
       const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/projects', {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       
@@ -84,7 +86,7 @@ const ProjectsManager: React.FC = () => {
       const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/projects', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(formData)
@@ -114,7 +116,7 @@ const ProjectsManager: React.FC = () => {
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/projects/${selectedProject.id}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(formData)
@@ -143,7 +145,7 @@ const ProjectsManager: React.FC = () => {
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/projects/${id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       
@@ -165,7 +167,7 @@ const ProjectsManager: React.FC = () => {
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/projects/${projectId}/generate`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       
@@ -189,7 +191,7 @@ const ProjectsManager: React.FC = () => {
     try {
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/generation/task/${taskId}`, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       
@@ -210,7 +212,7 @@ const ProjectsManager: React.FC = () => {
     try {
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/generation/results/${taskId}`, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       

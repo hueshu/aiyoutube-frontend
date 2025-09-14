@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useStore } from '../store'
+import { useAuthStore } from '../store/authStore'
 import { API_URL } from '../config/api'
 import { Upload, Edit2, Trash2, Eye, Plus, Download, Maximize2, X, Settings } from 'lucide-react'
 
@@ -14,7 +15,8 @@ interface Character {
 }
 
 export default function CharacterLibrary() {
-  const { user, characters, fetchCharacters } = useStore()
+  const { characters, fetchCharacters } = useStore()
+  const { user } = useAuthStore()
   const [categories, setCategories] = useState<string[]>(['全部'])
   const [selectedCategory, setSelectedCategory] = useState('全部')
   const [showUploadModal, setShowUploadModal] = useState(false)
@@ -74,7 +76,7 @@ export default function CharacterLibrary() {
 
   const fetchCategories = async () => {
     try {
-      const token = localStorage.getItem('token') || user?.token
+      const token = localStorage.getItem('token')
       if (!token) {
         console.log('No token available for fetching categories')
         return
@@ -134,7 +136,7 @@ export default function CharacterLibrary() {
       const response = await fetch(`${API_URL}/characters`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: formData
       })
@@ -195,7 +197,7 @@ export default function CharacterLibrary() {
       const response = await fetch(`${API_URL}/characters/${editingCharacter.id}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -234,7 +236,7 @@ export default function CharacterLibrary() {
       const response = await fetch(`${API_URL}/characters/${id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       })
       
@@ -256,7 +258,7 @@ export default function CharacterLibrary() {
     try {
       const response = await fetch(character.image_url, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       })
       
@@ -299,7 +301,7 @@ export default function CharacterLibrary() {
       const response = await fetch(`${API_URL}/characters/categories`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ name: newCategory })
@@ -335,7 +337,7 @@ export default function CharacterLibrary() {
       const response = await fetch(`${API_URL}/characters/categories/${encodeURIComponent(oldName)}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ newName: editingCategoryName })
@@ -372,7 +374,7 @@ export default function CharacterLibrary() {
       const response = await fetch(`${API_URL}/characters/categories/${encodeURIComponent(categoryName)}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       })
       

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useStore } from '../store';
+import { useStore } from '../store'
+import { useAuthStore } from '../store/authStore';
 import { Users, BarChart, UserPlus, Trash2, Edit, Shield, Activity } from 'lucide-react';
 
 interface User {
@@ -42,7 +43,7 @@ interface SystemStats {
 }
 
 const AdminPanel: React.FC = () => {
-  const { user } = useStore();
+  const { user } = useAuthStore();
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -72,7 +73,7 @@ const AdminPanel: React.FC = () => {
     try {
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users?search=${searchTerm}`, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       
@@ -89,7 +90,7 @@ const AdminPanel: React.FC = () => {
     try {
       const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/stats', {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       
@@ -108,7 +109,7 @@ const AdminPanel: React.FC = () => {
       const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(formData)
@@ -150,7 +151,7 @@ const AdminPanel: React.FC = () => {
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users/${selectedUser.id}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(updateData)
@@ -180,7 +181,7 @@ const AdminPanel: React.FC = () => {
       const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       

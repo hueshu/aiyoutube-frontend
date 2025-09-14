@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { API_URL } from '../config/api';
-import { useStore } from '../store';
+import { useStore } from '../store'
+import { useAuthStore } from '../store/authStore';
 
 interface LogEntry {
   timestamp: string;
@@ -17,11 +18,11 @@ const LogsPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
-  const { user } = useStore();
+  const { user } = useAuthStore();
 
   // Start streaming logs
   const startStreaming = () => {
-    if (!user?.token) {
+    if (!localStorage.getItem('token')) {
       alert('请先登录');
       return;
     }
@@ -32,7 +33,7 @@ const LogsPage: React.FC = () => {
     }
 
     // Create new EventSource connection
-    const eventSource = new EventSource(`${API_URL}/logs/stream?token=${user.token}`);
+    const eventSource = new EventSource(`${API_URL}/logs/stream?token=${localStorage.getItem('token')}`);
     
     eventSource.onmessage = (event) => {
       try {

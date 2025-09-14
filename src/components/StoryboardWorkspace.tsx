@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useStore } from '../store';
+import { useStore } from '../store'
+import { useAuthStore } from '../store/authStore';
 import { API_URL } from '../config/api';
 import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye, Palette, Info } from 'lucide-react';
 import JSZip from 'jszip';
@@ -52,7 +53,8 @@ interface StyleCategory {
 }
 
 const StoryboardWorkspace: React.FC = () => {
-  const { user, scripts, characters, fetchScripts, fetchCharacters } = useStore();
+  const { scripts, characters, fetchScripts, fetchCharacters } = useStore();
+  const { user } = useAuthStore();
   const [selectedScriptId, setSelectedScriptId] = useState<string>('');
   const [scriptFrames, setScriptFrames] = useState<ScriptFrame[]>([]);
   const [characterMapping, setCharacterMapping] = useState<Record<string, number>>({});
@@ -327,7 +329,7 @@ const StoryboardWorkspace: React.FC = () => {
 
   // Helper function to get auth token
   const getAuthToken = () => {
-    return localStorage.getItem('token') || user?.token;
+    return localStorage.getItem('token') || localStorage.getItem('token');
   };
 
   const generateSingleImage = async (frameNumber: number) => {

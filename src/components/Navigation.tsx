@@ -1,14 +1,12 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { useStore } from '../store';
 import { useAuthStore } from '../store/authStore';
 import { Home, FileText, Users, Palette, Folder, Shield, LogOut, FileSearch } from 'lucide-react';
 
 const Navigation: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user } = useStore();
-  const { logout } = useAuthStore();
+  const { user, logout } = useAuthStore();
 
   const navItems = [
     { path: '/', label: '首页', icon: Home },

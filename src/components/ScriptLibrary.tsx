@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useStore } from '../store'
+import { useAuthStore } from '../store/authStore'
 import { API_URL } from '../config/api'
 import { Download, Edit2, Trash2, Eye, Upload, Plus, Video, Settings } from 'lucide-react'
 
@@ -16,7 +17,8 @@ interface Script {
 }
 
 export default function ScriptLibrary() {
-  const { user, scripts, fetchScripts } = useStore()
+  const { scripts, fetchScripts } = useStore()
+  const { user } = useAuthStore()
   const [categories, setCategories] = useState<string[]>(['全部'])
   const [selectedCategory, setSelectedCategory] = useState('全部')
   const [showUploadModal, setShowUploadModal] = useState(false)
@@ -55,7 +57,7 @@ export default function ScriptLibrary() {
     try {
       const response = await fetch(`${API_URL}/scripts/categories/list`, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       })
       if (response.ok) {
@@ -88,7 +90,7 @@ export default function ScriptLibrary() {
     if (!uploadFile) return
     
     console.log('Starting upload...')
-    console.log('User token:', user?.token)
+    console.log('User token:', localStorage.getItem('token'))
     console.log('File:', uploadFile)
     console.log('Name:', uploadName)
     console.log('Category:', uploadCategory || '未分类')
@@ -107,7 +109,7 @@ export default function ScriptLibrary() {
       const response = await fetch(`${API_URL}/scripts`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: formData
       })
@@ -154,7 +156,7 @@ export default function ScriptLibrary() {
       const response = await fetch(`${API_URL}/scripts/${editingScript.id}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -185,7 +187,7 @@ export default function ScriptLibrary() {
       const response = await fetch(`${API_URL}/scripts/${id}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       })
       
@@ -202,7 +204,7 @@ export default function ScriptLibrary() {
     try {
       const response = await fetch(`${API_URL}/scripts/${script.id}/download`, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       })
       
@@ -227,7 +229,7 @@ export default function ScriptLibrary() {
     try {
       const response = await fetch(`${API_URL}/scripts/${script.id}`, {
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       })
       
@@ -262,7 +264,7 @@ export default function ScriptLibrary() {
       const response = await fetch(`${API_URL}/scripts/categories`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ name: newCategory })
@@ -298,7 +300,7 @@ export default function ScriptLibrary() {
       const response = await fetch(`${API_URL}/scripts/categories/${encodeURIComponent(oldName)}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${user?.token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({ newName: editingCategoryName })
@@ -335,7 +337,7 @@ export default function ScriptLibrary() {
       const response = await fetch(`${API_URL}/scripts/categories/${encodeURIComponent(categoryName)}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       })
       

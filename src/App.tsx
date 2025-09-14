@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
-import { useStore } from './store'
 import LoginPage from './components/LoginPage'
 import Dashboard from './components/Dashboard'
 import ScriptLibrary from './components/ScriptLibrary'
@@ -13,8 +12,7 @@ import Navigation from './components/Navigation'
 import LogsPage from './pages/LogsPage'
 
 function App() {
-  const { isAuthenticated, isLoading, initializeAuth } = useAuthStore()
-  const { user } = useStore()
+  const { isAuthenticated, isLoading, initializeAuth, user } = useAuthStore()
 
   useEffect(() => {
     initializeAuth()
