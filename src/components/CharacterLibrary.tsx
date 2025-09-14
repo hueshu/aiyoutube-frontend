@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useStore } from '../store'
 import { useAuthStore } from '../store/authStore'
 import { API_URL } from '../config/api'
-import { Upload, Edit2, Trash2, Eye, Plus, Download, Maximize2, X, Settings } from 'lucide-react'
+import { Upload, Edit2, Trash2, Plus, Download, X, Settings } from 'lucide-react'
 
 interface Character {
   id: number
@@ -484,7 +484,7 @@ export default function CharacterLibrary() {
                 <img
                   src={character.image_url}
                   alt={character.name}
-                  className="absolute inset-0 w-full h-full object-cover bg-gray-100 cursor-pointer hover:opacity-90 transition-opacity"
+                  className="absolute inset-0 w-full h-full object-contain bg-gray-100 cursor-pointer hover:opacity-90 transition-opacity"
                   onClick={() => handlePreview(character)}
                 />
               </div>
