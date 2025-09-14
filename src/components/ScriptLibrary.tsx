@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useStore } from '../store'
-import { useAuthStore } from '../store/authStore'
 import { API_URL } from '../config/api'
 import { Download, Edit2, Trash2, Eye, Upload, Plus, Video, Settings } from 'lucide-react'
 
@@ -18,7 +17,6 @@ interface Script {
 
 export default function ScriptLibrary() {
   const { scripts, fetchScripts } = useStore()
-  const { user } = useAuthStore()
   const [categories, setCategories] = useState<string[]>(['全部'])
   const [selectedCategory, setSelectedCategory] = useState('全部')
   const [showUploadModal, setShowUploadModal] = useState(false)

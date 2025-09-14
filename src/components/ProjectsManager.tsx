@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store'
-import { useAuthStore } from '../store/authStore';
 import { Folder, Plus, Trash2, Edit, Play, Download, Eye } from 'lucide-react';
 
 interface Project {
@@ -29,7 +28,6 @@ interface GenerationTask {
 
 const ProjectsManager: React.FC = () => {
   const { scripts, characters, fetchScripts, fetchCharacters } = useStore();
-  const { user } = useAuthStore();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);

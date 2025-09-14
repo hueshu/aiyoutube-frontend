@@ -118,7 +118,7 @@ export default function CharacterLibrary() {
     if (!uploadFile) return
     
     console.log('Starting character upload...')
-    console.log('User token:', user?.token)
+    console.log('User token:', localStorage.getItem('token'))
     console.log('File:', uploadFile)
     console.log('Name:', uploadName)
     console.log('Category:', uploadCategory || '未分类')
@@ -477,57 +477,42 @@ export default function CharacterLibrary() {
       ) : filteredCharacters.length === 0 ? (
         <div className="text-center py-8 text-gray-500">暂无角色</div>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-3">
           {filteredCharacters.map((character: any) => (
             <div key={character.id} className="bg-white rounded-lg shadow overflow-hidden group hover:shadow-lg transition-shadow">
-              <div className="relative" style={{ paddingBottom: '177.78%' }}> {/* 9:16 aspect ratio */}
+              <div className="relative" style={{ paddingBottom: '150%' }}> {/* Smaller aspect ratio */}
                 <img
                   src={character.image_url}
                   alt={character.name}
-                  className="absolute inset-0 w-full h-full object-contain bg-gray-100 cursor-pointer"
+                  className="absolute inset-0 w-full h-full object-cover bg-gray-100 cursor-pointer hover:opacity-90 transition-opacity"
                   onClick={() => handlePreview(character)}
                 />
-                <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-opacity flex items-center justify-center opacity-0 group-hover:opacity-100">
-                  <button
-                    onClick={() => handlePreview(character)}
-                    className="bg-white p-2 rounded-full shadow-lg"
-                  >
-                    <Maximize2 size={16} />
-                  </button>
-                </div>
               </div>
-              <div className="p-3">
-                <h3 className="text-sm font-semibold truncate mb-1" title={character.name}>
+              <div className="p-2">
+                <h3 className="text-xs font-semibold truncate mb-1" title={character.name}>
                   {character.name}
                 </h3>
-                <p className="text-xs text-gray-500 mb-2">{character.category || '未分类'}</p>
+                <p className="text-xs text-gray-500 mb-1">{character.category || '未分类'}</p>
                 <div className="flex flex-wrap gap-1">
                   <button
-                    onClick={() => handlePreview(character)}
-                    className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded flex items-center gap-1"
-                  >
-                    <Eye size={12} />
-                    预览
-                  </button>
-                  <button
                     onClick={() => handleEdit(character)}
-                    className="text-xs bg-blue-200 hover:bg-blue-300 px-2 py-1 rounded flex items-center gap-1"
+                    className="text-xs bg-blue-200 hover:bg-blue-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
                   >
-                    <Edit2 size={12} />
+                    <Edit2 size={10} />
                     编辑
                   </button>
                   <button
                     onClick={() => handleDownload(character)}
-                    className="text-xs bg-green-200 hover:bg-green-300 px-2 py-1 rounded flex items-center gap-1"
+                    className="text-xs bg-green-200 hover:bg-green-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
                   >
-                    <Download size={12} />
+                    <Download size={10} />
                     下载
                   </button>
                   <button
                     onClick={() => handleDelete(character.id)}
-                    className="text-xs bg-red-200 hover:bg-red-300 px-2 py-1 rounded flex items-center gap-1"
+                    className="text-xs bg-red-200 hover:bg-red-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
                   >
-                    <Trash2 size={12} />
+                    <Trash2 size={10} />
                     删除
                   </button>
                 </div>

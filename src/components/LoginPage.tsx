@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { useStore } from '../store'
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true)
@@ -9,10 +8,9 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  
+
   const navigate = useNavigate()
   const { login, register } = useAuthStore()
-  const { setUser } = useStore()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -25,16 +23,7 @@ export default function LoginPage() {
       } else {
         await register(username, password)
       }
-      
-      // Get user data from authStore and set it in main store
-      const authState = useAuthStore.getState()
-      if (authState.user && authState.token) {
-        setUser({
-          ...authState.user,
-          token: authState.token
-        })
-      }
-      
+
       navigate('/dashboard')
     } catch (err: any) {
       setError(err.response?.data?.error || '操作失败')

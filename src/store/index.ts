@@ -33,7 +33,7 @@ interface Store {
   fetchCharacters: () => Promise<void>
 }
 
-export const useStore = create<Store>((set, get) => ({
+export const useStore = create<Store>((set) => ({
   scripts: [],
   characters: [],
 

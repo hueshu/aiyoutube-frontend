@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store'
-import { useAuthStore } from '../store/authStore';
 import { API_URL } from '../config/api';
 import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye, Palette, Info } from 'lucide-react';
 import JSZip from 'jszip';
@@ -54,7 +53,6 @@ interface StyleCategory {
 
 const StoryboardWorkspace: React.FC = () => {
   const { scripts, characters, fetchScripts, fetchCharacters } = useStore();
-  const { user } = useAuthStore();
   const [selectedScriptId, setSelectedScriptId] = useState<string>('');
   const [scriptFrames, setScriptFrames] = useState<ScriptFrame[]>([]);
   const [characterMapping, setCharacterMapping] = useState<Record<string, number>>({});
