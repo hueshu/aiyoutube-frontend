@@ -330,28 +330,20 @@ const StoryboardWorkspace: React.FC = () => {
     return processedPrompt;
   };
 
-  // Helper function to get ratio template filename
-  const getRatioTemplateFilename = (imageSize: string): string | null => {
+  // Helper function to get the R2 URL for ratio template
+  const getRatioTemplateUrl = (imageSize: string): string | null => {
+    // These are pre-uploaded ratio templates in R2 storage
+    // Format matches the backend's expected pattern: /api/v1/storage/{path}
     const ratioMap: Record<string, string> = {
-      '[1:1]': '1_1_ratio_template.jpg',
-      '[16:9]': '16_9_ratio_template.jpg',
-      '[4:3]': '4_3_ratio_template.jpg',
-      '[3:2]': '3_2_ratio_template.jpg',
-      '[9:16]': '9_16_ratio_template.jpg',
-      '[3:4]': '3_4_ratio_template.jpg',
-      '[2:3]': '2_3_ratio_template.jpg'
+      '[1:1]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/1_1_ratio_template.jpg',
+      '[16:9]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/16_9_ratio_template.jpg',
+      '[4:3]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/4_3_ratio_template.jpg',
+      '[3:2]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/3_2_ratio_template.jpg',
+      '[9:16]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/9_16_ratio_template.jpg',
+      '[3:4]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/3_4_ratio_template.jpg',
+      '[2:3]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/2_3_ratio_template.jpg'
     };
     return ratioMap[imageSize] || null;
-  };
-
-  // Helper function to get the full URL for ratio template
-  const getRatioTemplateUrl = (imageSize: string): string | null => {
-    const templateFilename = getRatioTemplateFilename(imageSize);
-    if (!templateFilename) return null;
-
-    // Return the full URL for the ratio template
-    // In production, this will be served from the same domain
-    return `${window.location.origin}/ratio_templates/${templateFilename}`;
   };
 
   // Helper function to get auth token
