@@ -8,6 +8,7 @@ import CharacterLibrary from './components/CharacterLibrary'
 import StoryboardWorkspace from './components/StoryboardWorkspace'
 import ProjectsManager from './components/ProjectsManager'
 import AdminPanel from './components/AdminPanel'
+import Settings from './components/Settings'
 import Navigation from './components/Navigation'
 import LogsPage from './pages/LogsPage'
 
@@ -52,6 +53,7 @@ function App() {
             <Route path="/workspace" element={<StoryboardWorkspace />} />
             <Route path="/projects" element={<ProjectsManager />} />
             <Route path="/logs" element={<LogsPage />} />
+            <Route path="/settings" element={<Settings />} />
             {user?.role === 'admin' && (
               <Route path="/admin" element={<AdminPanel />} />
             )}

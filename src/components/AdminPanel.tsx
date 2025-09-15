@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { Users, BarChart, UserPlus, Trash2, Edit, Shield, Activity, Eye, EyeOff, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react';
+import { Users, BarChart, UserPlus, Trash2, Edit, Shield, Activity, Eye, EyeOff, CheckCircle, XCircle, AlertCircle, RefreshCw, Key } from 'lucide-react';
 
 interface User {
   id: number;
@@ -11,6 +11,8 @@ interface User {
   is_active: boolean;
   usage_limit: number;
   usage_count: number;
+  has_api_key?: boolean;
+  require_own_key?: boolean;
   stats?: {
     scripts: number;
     characters: number;
@@ -89,7 +91,8 @@ const AdminPanel: React.FC = () => {
     password: '',
     role: 'user' as 'admin' | 'user',
     usage_limit: 1000,
-    is_active: true
+    is_active: true,
+    require_own_key: true
   });
 
   const [formErrors, setFormErrors] = useState({
@@ -259,6 +262,29 @@ const AdminPanel: React.FC = () => {
     }
   };
 
+  const toggleRequireOwnKey = async (userId: number, requireOwnKey: boolean) => {
+    try {
+      const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/settings/admin/user/${userId}/require-key`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ require_own_key: requireOwnKey })
+      });
+
+      if (response.ok) {
+        showToast(`已${requireOwnKey ? '开启' : '关闭'}用户的API Key要求`, 'success');
+        fetchUsers();
+      } else {
+        const error = await response.json();
+        showToast(error.error || '操作失败', 'error');
+      }
+    } catch (error) {
+      showToast('操作失败', 'error');
+    }
+  };
+
   const deleteUser = async (userId: number, username: string) => {
     if (!confirm(`确定要删除用户 "${username}" 吗？\n\n此操作不可恢复，该用户的所有数据将被永久删除。`)) return;
 
@@ -289,7 +315,8 @@ const AdminPanel: React.FC = () => {
       password: '',
       role: 'user',
       usage_limit: 1000,
-      is_active: true
+      is_active: true,
+      require_own_key: true
     });
     setConfirmPassword('');
     setShowPassword(false);
@@ -308,7 +335,8 @@ const AdminPanel: React.FC = () => {
       password: '',
       role: user.role,
       usage_limit: user.usage_limit,
-      is_active: user.is_active
+      is_active: user.is_active,
+      require_own_key: user.require_own_key || false
     });
     setIsEditModalOpen(true);
   };
@@ -395,6 +423,7 @@ const AdminPanel: React.FC = () => {
                     <th className="text-left p-2">用户名</th>
                     <th className="text-left p-2">角色</th>
                     <th className="text-left p-2">状态</th>
+                    <th className="text-left p-2">API Key</th>
                     <th className="text-left p-2">使用量</th>
                     <th className="text-left p-2">脚本</th>
                     <th className="text-left p-2">角色数</th>
@@ -421,6 +450,32 @@ const AdminPanel: React.FC = () => {
                         }`}>
                           {user.is_active ? '活跃' : '禁用'}
                         </span>
+                      </td>
+                      <td className="p-2">
+                        <div className="flex items-center gap-2">
+                          {user.require_own_key ? (
+                            user.has_api_key ? (
+                              <span className="flex items-center gap-1 text-green-600">
+                                <Key className="w-3 h-3" />
+                                <span className="text-xs">已配置</span>
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 text-red-600">
+                                <Key className="w-3 h-3" />
+                                <span className="text-xs">需配置</span>
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-xs text-gray-500">使用系统</span>
+                          )}
+                          <button
+                            onClick={() => toggleRequireOwnKey(user.id, !user.require_own_key)}
+                            className="text-blue-500 hover:text-blue-700"
+                            title={user.require_own_key ? '切换为使用系统API Key' : '切换为需要自己的API Key'}
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                          </button>
+                        </div>
                       </td>
                       <td className="p-2">{user.usage_count}/{user.usage_limit}</td>
                       <td className="p-2">{user.stats?.scripts || 0}</td>
@@ -644,6 +699,21 @@ const AdminPanel: React.FC = () => {
                   />
                   <span className="text-sm">启用账户</span>
                 </label>
+              </div>
+
+              <div>
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={formData.require_own_key}
+                    onChange={(e) => setFormData({ ...formData, require_own_key: e.target.checked })}
+                    className="mr-2"
+                  />
+                  <span className="text-sm">需要配置自己的API Key</span>
+                </label>
+                <p className="text-xs text-gray-500 mt-1 ml-6">
+                  开启后，用户需要在设置中配置自己的云雾API Key才能使用生图功能
+                </p>
               </div>
             </div>
             
