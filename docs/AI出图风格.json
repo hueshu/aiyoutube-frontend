@@ -518,6 +518,271 @@
         ]
       },
       {
+        "id": "photorealistic_human",
+        "name": "真人摄影风格",
+        "description": "专业真人摄影和人像风格",
+        "subcategories": [
+          {
+            "id": "portrait_photography",
+            "name": "人像摄影风格",
+            "styles": [
+              {
+                "id": "cinematic_portrait",
+                "name": "电影感人像",
+                "prompt_keywords": "cinematic portrait photography, professional studio lighting, shallow depth of field, bokeh background, 85mm lens, natural skin texture, soft rembrandt lighting, film grain, professional color grading, raw photo, photorealistic, high resolution, detailed facial features",
+                "description": "专业的电影级人像摄影，柔和的伦勃朗光线，自然的肤质纹理，浅景深虚化背景，专业调色",
+                "use_cases": ["人物特写", "情感表达", "艺术人像", "电影剧照"],
+                "recommended_settings": {
+                  "lens": "85mm_f1.4",
+                  "lighting": "rembrandt",
+                  "depth_of_field": "shallow",
+                  "post_process": "cinematic_grade"
+                }
+              },
+              {
+                "id": "street_documentary",
+                "name": "街头纪实人像",
+                "prompt_keywords": "street photography style, candid shot, natural lighting, urban environment, documentary aesthetic, 35mm film look, authentic moment, environmental portrait, city backdrop, available light, photojournalistic approach, unposed, real person",
+                "description": "真实的街头摄影风格，自然光线，城市环境，纪实美学，抓拍瞬间，未经摆拍的真实感",
+                "use_cases": ["纪录片", "街拍", "人文摄影", "新闻摄影"],
+                "recommended_settings": {
+                  "lens": "35mm",
+                  "shooting_mode": "candid",
+                  "lighting": "natural_available",
+                  "style": "documentary"
+                }
+              },
+              {
+                "id": "vintage_film_portrait",
+                "name": "复古胶片人像",
+                "prompt_keywords": "vintage film photography, 1970s aesthetic, kodak portra 400, film grain, soft focus, warm color tones, analog photography, nostalgic mood, natural imperfections, light leaks, retro fashion styling, authentic vintage look",
+                "description": "复古胶片摄影风格，柯达Portra 400色彩，胶片颗粒，温暖色调，自然的缺陷美，怀旧氛围",
+                "use_cases": ["复古风格", "怀旧主题", "艺术摄影", "时尚大片"],
+                "recommended_settings": {
+                  "film_type": "kodak_portra_400",
+                  "grain": "medium",
+                  "color_tone": "warm_vintage",
+                  "imperfections": "light_leaks"
+                }
+              },
+              {
+                "id": "fashion_editorial",
+                "name": "时尚杂志人像",
+                "prompt_keywords": "high fashion photography, vogue magazine style, professional model, designer clothing, dramatic lighting, editorial pose, clean background, beauty lighting, flawless makeup, styled hair, commercial quality, studio strobe lighting",
+                "description": "高端时尚杂志风格，专业模特，设计师服装，戏剧性灯光，完美妆容，商业品质",
+                "use_cases": ["时尚大片", "杂志封面", "商业广告", "品牌宣传"],
+                "recommended_settings": {
+                  "lighting": "beauty_dish",
+                  "background": "seamless",
+                  "makeup": "professional",
+                  "quality": "commercial"
+                }
+              },
+              {
+                "id": "lifestyle_portrait",
+                "name": "生活方式人像",
+                "prompt_keywords": "lifestyle photography, natural daylight, casual authentic moment, genuine smile, relaxed pose, home environment, soft window light, cozy atmosphere, real life situation, warm and inviting, candid expression",
+                "description": "自然的生活方式摄影，真实的日常瞬间，温暖的家居环境，柔和的窗光，轻松自在的氛围",
+                "use_cases": ["生活记录", "家庭摄影", "品牌故事", "社交媒体"],
+                "recommended_settings": {
+                  "lighting": "window_light",
+                  "mood": "casual_authentic",
+                  "environment": "home_interior",
+                  "expression": "natural"
+                }
+              },
+              {
+                "id": "corporate_headshot",
+                "name": "商务肖像",
+                "prompt_keywords": "corporate headshot, professional business portrait, formal attire, neutral background, confident expression, even lighting, business suit, clean composition, executive portrait, linkedin photo style",
+                "description": "专业的商务人像，正装着装，中性背景，自信表情，均匀布光，适合LinkedIn等职业平台",
+                "use_cases": ["企业宣传", "个人简历", "商务用途", "职业形象"],
+                "recommended_settings": {
+                  "background": "neutral_gray",
+                  "lighting": "even_butterfly",
+                  "attire": "business_formal",
+                  "expression": "professional"
+                }
+              },
+              {
+                "id": "fine_art_portrait",
+                "name": "艺术人像",
+                "prompt_keywords": "fine art portrait photography, dramatic shadows, emotional expression, gallery quality, artistic composition, creative lighting, conceptual elements, black and white option, museum quality print",
+                "description": "艺术馆级别的人像摄影，戏剧性光影，情感表达，创意构图，概念性元素",
+                "use_cases": ["艺术创作", "画廊展览", "个人项目", "视觉艺术"],
+                "recommended_settings": {
+                  "style": "fine_art",
+                  "lighting": "dramatic",
+                  "composition": "artistic",
+                  "print_quality": "gallery"
+                }
+              }
+            ]
+          },
+          {
+            "id": "age_specific_portrait",
+            "name": "年龄特定人像",
+            "styles": [
+              {
+                "id": "children_portrait",
+                "name": "儿童人像",
+                "prompt_keywords": "children portrait photography, natural child expression, playful moment, soft natural light, genuine laughter, candid childhood, eye-level perspective, colorful environment, innocent joy",
+                "description": "自然的儿童表情，玩耍瞬间，柔和自然光，真诚的笑容，儿童视角，充满童趣",
+                "use_cases": ["儿童摄影", "家庭相册", "成长记录", "亲子摄影"],
+                "recommended_settings": {
+                  "perspective": "eye_level",
+                  "shutter_speed": "fast",
+                  "mood": "playful",
+                  "safety": "child_friendly"
+                }
+              },
+              {
+                "id": "elderly_portrait",
+                "name": "老年人肖像",
+                "prompt_keywords": "elderly portrait, weathered face with character, life stories in wrinkles, dignified expression, soft lighting, respectful portraiture, wisdom in eyes, natural aging beauty",
+                "description": "充满故事感的面容，岁月的痕迹，庄严的表情，柔和的光线，智慧的眼神，自然的衰老之美",
+                "use_cases": ["人文摄影", "纪实摄影", "家族记录", "社会题材"],
+                "recommended_settings": {
+                  "lighting": "soft_diffused",
+                  "focus": "eyes_and_wrinkles",
+                  "mood": "dignified",
+                  "approach": "respectful"
+                }
+              },
+              {
+                "id": "youth_portrait",
+                "name": "青年人像",
+                "prompt_keywords": "young adult portrait, vibrant energy, modern casual style, urban setting, natural confidence, contemporary fashion, dynamic pose, social media aesthetic, generation z style",
+                "description": "充满活力的青年形象，现代休闲风格，都市背景，自然的自信，当代时尚，社交媒体美学",
+                "use_cases": ["社交媒体", "青年文化", "时尚摄影", "品牌推广"],
+                "recommended_settings": {
+                  "style": "contemporary",
+                  "energy": "vibrant",
+                  "platform": "social_media_optimized",
+                  "fashion": "trendy"
+                }
+              }
+            ]
+          },
+          {
+            "id": "environmental_conditions",
+            "name": "环境条件人像",
+            "styles": [
+              {
+                "id": "golden_hour_portrait",
+                "name": "黄金时刻人像",
+                "prompt_keywords": "golden hour portrait, warm sunset lighting, magic hour glow, sun flare, backlit silhouette option, outdoor natural light, orange and pink tones, romantic atmosphere",
+                "description": "黄金时刻的温暖光线，魔幻时刻的光晕，逆光剪影，户外自然光，橙粉色调，浪漫氛围",
+                "use_cases": ["浪漫摄影", "婚纱照", "情侣写真", "艺术人像"],
+                "recommended_settings": {
+                  "time": "golden_hour",
+                  "direction": "backlit_or_sidelit",
+                  "color_temp": "warm",
+                  "flare": "controlled"
+                }
+              },
+              {
+                "id": "night_portrait",
+                "name": "夜景人像",
+                "prompt_keywords": "night portrait photography, city lights bokeh, neon light illumination, urban night scene, available darkness, street lamp lighting, moody atmosphere",
+                "description": "城市灯光虚化，霓虹灯照明，都市夜景，街灯光线，情绪化氛围，暗调摄影",
+                "use_cases": ["都市夜景", "霓虹风格", "情绪人像", "创意摄影"],
+                "recommended_settings": {
+                  "iso": "high",
+                  "aperture": "wide_open",
+                  "lights": "practical_and_neon",
+                  "mood": "cinematic_night"
+                }
+              },
+              {
+                "id": "rain_portrait",
+                "name": "雨中人像",
+                "prompt_keywords": "rain portrait photography, water droplets, wet environment, dramatic weather, moody atmosphere, backlit rain, reflective surfaces, emotional mood",
+                "description": "雨滴效果，潮湿环境，戏剧性天气，情绪化氛围，逆光雨滴，反光表面，情感表达",
+                "use_cases": ["情绪摄影", "艺术创作", "电影感", "创意人像"],
+                "recommended_settings": {
+                  "protection": "weather_sealed",
+                  "lighting": "backlit_rain",
+                  "shutter": "various_for_effect",
+                  "mood": "dramatic"
+                }
+              },
+              {
+                "id": "studio_portrait",
+                "name": "棚拍人像",
+                "prompt_keywords": "studio portrait photography, controlled lighting setup, seamless backdrop, professional strobe lights, beauty dish, softbox, reflectors, perfect lighting control",
+                "description": "控制光线设置，无缝背景，专业闪光灯，柔光箱，反光板，完美的光线控制",
+                "use_cases": ["商业摄影", "产品代言", "专业人像", "证件照"],
+                "recommended_settings": {
+                  "lighting": "multi_light_setup",
+                  "background": "seamless_paper",
+                  "control": "full",
+                  "consistency": "high"
+                }
+              }
+            ]
+          },
+          {
+            "id": "technical_styles",
+            "name": "技术风格人像",
+            "styles": [
+              {
+                "id": "high_key_portrait",
+                "name": "高调人像",
+                "prompt_keywords": "high key portrait, bright even lighting, white background, minimal shadows, clean aesthetic, fashion and beauty style, overexposed background",
+                "description": "明亮均匀的光线，白色背景，最少阴影，干净的美学，时尚美妆风格，过曝的背景",
+                "use_cases": ["美妆摄影", "时尚摄影", "商业用途", "积极情绪"],
+                "recommended_settings": {
+                  "exposure": "bright",
+                  "shadows": "minimal",
+                  "background": "white",
+                  "mood": "positive"
+                }
+              },
+              {
+                "id": "low_key_portrait",
+                "name": "低调人像",
+                "prompt_keywords": "low key portrait, dramatic shadows, dark background, selective lighting, mysterious mood, film noir style, chiaroscuro lighting",
+                "description": "戏剧性阴影，暗色背景，选择性照明，神秘情绪，黑色电影风格，明暗对比法",
+                "use_cases": ["艺术人像", "情绪表达", "男性人像", "戏剧效果"],
+                "recommended_settings": {
+                  "exposure": "dark",
+                  "contrast": "high",
+                  "lighting": "directional",
+                  "mood": "dramatic"
+                }
+              },
+              {
+                "id": "hdr_portrait",
+                "name": "HDR人像",
+                "prompt_keywords": "HDR portrait photography, high dynamic range, detailed shadows and highlights, tone mapped, surreal quality, enhanced details, dramatic processing",
+                "description": "高动态范围，细节丰富的阴影和高光，色调映射，超现实质感，增强的细节，戏剧性处理",
+                "use_cases": ["创意摄影", "特效人像", "艺术作品", "视觉冲击"],
+                "recommended_settings": {
+                  "bracketing": "multiple_exposures",
+                  "processing": "tone_mapping",
+                  "detail": "enhanced",
+                  "style": "artistic"
+                }
+              },
+              {
+                "id": "tilt_shift_portrait",
+                "name": "移轴人像",
+                "prompt_keywords": "tilt shift portrait, selective focus, miniature effect, dreamy bokeh, unique depth of field, creative blur, artistic perspective",
+                "description": "选择性对焦，微缩效果，梦幻虚化，独特的景深，创意模糊，艺术视角",
+                "use_cases": ["创意摄影", "艺术项目", "特殊效果", "概念摄影"],
+                "recommended_settings": {
+                  "lens": "tilt_shift",
+                  "focus": "selective",
+                  "effect": "miniature",
+                  "creativity": "high"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
         "id": "special_effects",
         "name": "特殊效果风格",
         "description": "特殊视觉效果风格",

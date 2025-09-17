@@ -57,7 +57,7 @@ const StoryboardWorkspace: React.FC = () => {
   const [scriptFrames, setScriptFrames] = useState<ScriptFrame[]>([]);
   const [characterMapping, setCharacterMapping] = useState<Record<string, number>>({});
   const [imageSize, setImageSize] = useState<string>('');
-  const [model, setModel] = useState<'sora_image' | 'gemini-2.5-flash-image-preview'>('sora_image');
+  const [model, setModel] = useState<'sora_image' | 'gemini-2.5-flash-image-preview' | 'seedream-4.0'>('sora_image');
   const [loading, setLoading] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; currentFrame: number } | null>(null);
   const [editingRow, setEditingRow] = useState<number | null>(null);
@@ -1374,6 +1374,7 @@ const StoryboardWorkspace: React.FC = () => {
             >
               <option value="sora_image">Sora Image</option>
               <option value="gemini-2.5-flash-image-preview">Gemini 2.5 Flash</option>
+              <option value="seedream-4.0">Seedream 4.0（支持多图编辑）</option>
             </select>
           </div>
           
@@ -2021,7 +2022,7 @@ const StoryboardWorkspace: React.FC = () => {
                     
                     {category.subcategories.map((subcategory) => (
                       <div key={subcategory.id} className="mb-6">
-                        <h5 className="text-md font-semibold text-gray-700 mb-3">
+                        <h5 className="text-lg font-bold text-blue-600 mb-3 bg-blue-50 px-3 py-2 rounded-md inline-block">
                           {subcategory.name}
                         </h5>
                         
