@@ -913,9 +913,9 @@ const StoryboardWorkspace: React.FC = () => {
           }
         } catch (error) {
           console.error(`Failed to submit frame ${frame.frame_number}:`, error);
-          setScriptFrames(prev => prev.map(f => 
-            f.frame_number === frame.frame_number 
-              ? { ...f, status: 'failed', progress: '提交失败' }
+          setScriptFrames(prev => prev.map(f =>
+            f.frame_number === frame.frame_number
+              ? { ...f, status: 'failed', error: '提交失败', progress: undefined }
               : f
           ));
           setGeneratingFrames(prev => {
@@ -1025,9 +1025,15 @@ const StoryboardWorkspace: React.FC = () => {
             pendingTasks.delete(task.id);
           } else if (task.status === 'failed') {
             // Handle failed task
-            setScriptFrames(prev => prev.map(f => 
-              f.frame_number === frame_number 
-                ? { ...f, status: 'failed', progress: task.error || '生成失败' }
+            setScriptFrames(prev => prev.map(f =>
+              f.frame_number === frame_number
+                ? {
+                    ...f,
+                    status: 'failed',
+                    error: task.error || '生成失败',
+                    errorDetails: task.errorDetails || task.apiResponse,
+                    progress: undefined
+                  }
                 : f
             ));
             
@@ -1059,9 +1065,9 @@ const StoryboardWorkspace: React.FC = () => {
       console.warn(`Batch polling timed out with ${pendingTasks.size} pending tasks`);
       for (const taskId of pendingTasks) {
         const frame_number = taskMap.get(taskId)!;
-        setScriptFrames(prev => prev.map(f => 
-          f.frame_number === frame_number 
-            ? { ...f, status: 'failed', progress: '超时' }
+        setScriptFrames(prev => prev.map(f =>
+          f.frame_number === frame_number
+            ? { ...f, status: 'failed', error: '生成超时', progress: undefined }
             : f
         ));
         setGeneratingFrames(prev => {
