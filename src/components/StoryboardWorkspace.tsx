@@ -1242,19 +1242,35 @@ const StoryboardWorkspace: React.FC = () => {
       characters.push(...matches1);
     }
     
-    // Also check if there's "角色：角色X" pattern - we already got 角色X above
-    // This pattern is for non-standard character names like "角色：pic2", "角色：character1" 
-    const pattern2 = /角色[：:]\s*([^角色\s]\w*)/g;
+    // Pattern to match "角色：xxx" format, capturing until next keyword or line end
+    // Updated to properly stop at space + keyword combinations
+    const pattern2 = /角色[：:]\s*([^场景镜头画面\n]+?)(?=\s+(?:场景|镜头|画面|在|的)|$)/g;
     let match;
     while ((match = pattern2.exec(prompt)) !== null) {
-      // Only push if it's not already a 角色X pattern (which is handled by pattern1)
-      if (!match[1].startsWith('色')) {
-        characters.push(match[1]); // Push the character name/id after 角色：
+      const roleString = match[1].trim();
+      
+      // Split by comma (both Chinese and English commas and 、) to handle multiple roles
+      const roles = roleString.split(/[,，、]/).map(r => r.trim()).filter(r => r);
+      
+      for (const role of roles) {
+        // Skip if it's a "角色X" pattern (already handled by pattern1)
+        // Also skip if it starts with '色' which would indicate a broken match
+        if (!role.startsWith('色') && !/^角色[A-Z]$/.test(role)) {
+          // If the role itself starts with "角色", extract the actual name
+          if (role.startsWith('角色')) {
+            const actualRole = role.substring(2);
+            if (actualRole) {
+              characters.push(actualRole);
+            }
+          } else {
+            characters.push(role);
+          }
+        }
       }
     }
     
     return [...new Set(characters)];
-  };
+  };;;
 
   // Get character details with images for a list of character names
   const getCharacterDetails = (characterNames: string[]) => {
