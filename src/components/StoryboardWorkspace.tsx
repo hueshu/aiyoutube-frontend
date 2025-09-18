@@ -24,6 +24,7 @@ interface ScriptFrame {
   generated_images?: string[];  // History of all generated images
   status?: 'pending' | 'generating' | 'completed' | 'failed';
   error?: string;
+  errorDetails?: any;  // Store detailed error information from API
   progress?: string; // Add progress field for showing generation status
   costume?: string[];  // Store selected costume items
   translatedPrompt?: string;  // Store translated prompt for batch processing
@@ -504,9 +505,14 @@ const StoryboardWorkspace: React.FC = () => {
         // Unexpected response or error
         const errorMsg = data?.error || `Unexpected response status ${response.status}`;
         console.error('Generation error:', errorMsg, 'Full response:', data);
-        setScriptFrames(prev => prev.map(f => 
-          f.frame_number === frameNumber 
-            ? { ...f, status: 'failed', error: errorMsg }
+        setScriptFrames(prev => prev.map(f =>
+          f.frame_number === frameNumber
+            ? {
+                ...f,
+                status: 'failed',
+                error: errorMsg,
+                errorDetails: data?.apiResponse || data?.errorDetails || data
+              }
             : f
         ));
         // Clear generating state on error
@@ -661,11 +667,31 @@ const StoryboardWorkspace: React.FC = () => {
         } else if (data.task?.status === 'failed') {
           // Failed
           clearInterval(pollInterval);
-          const errorMsg = data.task.error || 'Generation failed';
+
+          // Extract detailed error information
+          let errorMsg = data.task.error || 'Generation failed';
+
+          // If we have API response with detailed error, use it
+          if (data.task.apiResponse?.content) {
+            errorMsg = data.task.apiResponse.content;
+          }
+
           console.error(`Frame ${frameNumber} failed:`, errorMsg);
-          setScriptFrames(prev => prev.map(f => 
-            f.frame_number === frameNumber 
-              ? { ...f, status: 'failed', error: errorMsg, progress: undefined }
+          console.error('Detailed error info:', {
+            apiResponse: data.task.apiResponse,
+            errorDetails: data.task.errorDetails,
+            rawResponse: data.task.rawResponse
+          });
+
+          setScriptFrames(prev => prev.map(f =>
+            f.frame_number === frameNumber
+              ? {
+                  ...f,
+                  status: 'failed',
+                  error: errorMsg,
+                  errorDetails: data.task.apiResponse || data.task.errorDetails,
+                  progress: undefined
+                }
               : f
           ));
           
@@ -1975,6 +2001,16 @@ const StoryboardWorkspace: React.FC = () => {
                                       <div className="whitespace-pre-wrap break-words">
                                         {frame.error}
                                       </div>
+                                      {frame.errorDetails && (
+                                        <>
+                                          <div className="font-semibold text-yellow-300 mt-2">云雾API响应：</div>
+                                          <div className="whitespace-pre-wrap break-words text-xs bg-gray-800 p-2 rounded">
+                                            {typeof frame.errorDetails === 'object'
+                                              ? JSON.stringify(frame.errorDetails, null, 2)
+                                              : frame.errorDetails}
+                                          </div>
+                                        </>
+                                      )}
                                     </div>
                                     <Tooltip.Arrow className="fill-gray-900" />
                                   </Tooltip.Content>
