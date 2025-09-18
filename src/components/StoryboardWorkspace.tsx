@@ -1447,16 +1447,20 @@ const StoryboardWorkspace: React.FC = () => {
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4">角色映射</h3>
           <div className="flex flex-wrap gap-2">
-            {[...new Set(scriptFrames.map(f => f.character).filter(Boolean))].map(scriptChar => {
-              const selectedCharacter = characters.find((c: any) => c.id === characterMapping[scriptChar!]);
+            {[...new Set(
+              scriptFrames.flatMap(f =>
+                f.charactersInFrame || extractCharactersFromPrompt(f.originalPrompt || f.prompt)
+              )
+            )].map(scriptChar => {
+              const selectedCharacter = characters.find((c: any) => c.id === characterMapping[scriptChar]);
               
               return (
                 <div 
                   key={scriptChar} 
                   className="border rounded-lg p-2 cursor-pointer hover:shadow-lg transition-shadow bg-gradient-to-br from-gray-50 to-white"
-                  onClick={() => setCharacterModal({ 
-                    isOpen: true, 
-                    scriptChar: scriptChar!, 
+                  onClick={() => setCharacterModal({
+                    isOpen: true,
+                    scriptChar: scriptChar,
                     selectedCategory: '全部',
                     selectedTags: []
                   })}
