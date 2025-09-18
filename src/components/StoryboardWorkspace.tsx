@@ -1242,38 +1242,56 @@ const StoryboardWorkspace: React.FC = () => {
       characters.push(...matches1);
     }
     
-    // Pattern to match "角色：xxx" format, capturing until next keyword or line end
-    // Updated to properly stop at space + keyword combinations
-    const pattern2 = /角色[：:]\s*([^场景镜头画面\n]+?)(?=\s+(?:场景|镜头|画面|在|的)|$)/g;
+    // Pattern to match "角色：xxx" or "角色:xxx"
+    // Improved: stops before next "角色" keyword (with or without colon)
+    const pattern2 = /角色[：:]\s*([^场景镜头画面\n]*?)(?=\s*角色|$)/g;
     let match;
     while ((match = pattern2.exec(prompt)) !== null) {
       const roleString = match[1].trim();
       
       // Split by comma (both Chinese and English commas and 、) to handle multiple roles
-      const roles = roleString.split(/[,，、]/).map(r => r.trim()).filter(r => r);
+      const parts = roleString.split(/[,，、]/);
       
-      for (const role of roles) {
-        // Further clean the role - remove anything after a space (like "角色B 吃肉串" -> "角色B")
-        const cleanedRole = role.split(/\s+/)[0];
+      for (const part of parts) {
+        const trimmedPart = part.trim();
+        if (!trimmedPart) continue;
         
-        // Skip if it's a "角色X" pattern (already handled by pattern1)
-        // Also skip if it starts with '色' which would indicate a broken match
-        if (!cleanedRole.startsWith('色') && !/^角色[A-Z]$/.test(cleanedRole)) {
-          // If the role itself starts with "角色", extract the actual name
-          if (cleanedRole.startsWith('角色')) {
-            const actualRole = cleanedRole.substring(2);
-            if (actualRole) {
+        // Split by space to handle multiple roles or role with description
+        const words = trimmedPart.split(/\s+/);
+        
+        // Action/verb words that indicate description rather than role name
+        const actionWords = ['在', '的', '了', '着', '过', '和', '与', '跟', '同', '对',
+                            '说', '看', '听', '走', '跑', '坐', '站', '吃', '喝', '打', '骂',
+                            '也', '都', '还', '又', '再', '就', '才', '只', '正', '正在',
+                            '两人', '三人', '几人', '一起', '同时', '对话', '说话'];
+        
+        for (const word of words) {
+          // Stop if we hit an action word
+          if (actionWords.some(action => word.includes(action))) {
+            break;
+          }
+          
+          // Skip if it's a "角色X" pattern (already handled by pattern1)
+          if (/^角色[A-Z]$/.test(word)) {
+            continue;
+          }
+          
+          // If word starts with "角色", extract the actual name
+          if (word.startsWith('角色')) {
+            const actualRole = word.substring(2);
+            if (actualRole && !actualRole.startsWith('色')) {
               characters.push(actualRole);
             }
-          } else if (cleanedRole) {
-            characters.push(cleanedRole);
+          } else if (word && !word.startsWith('色')) {
+            // It looks like a role name
+            characters.push(word);
           }
         }
       }
     }
     
     return [...new Set(characters)];
-  };;;;
+  };;;;;
 
   // Get character details with images for a list of character names
   const getCharacterDetails = (characterNames: string[]) => {
