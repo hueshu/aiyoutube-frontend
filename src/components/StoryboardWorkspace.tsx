@@ -1253,24 +1253,27 @@ const StoryboardWorkspace: React.FC = () => {
       const roles = roleString.split(/[,，、]/).map(r => r.trim()).filter(r => r);
       
       for (const role of roles) {
+        // Further clean the role - remove anything after a space (like "角色B 吃肉串" -> "角色B")
+        const cleanedRole = role.split(/\s+/)[0];
+        
         // Skip if it's a "角色X" pattern (already handled by pattern1)
         // Also skip if it starts with '色' which would indicate a broken match
-        if (!role.startsWith('色') && !/^角色[A-Z]$/.test(role)) {
+        if (!cleanedRole.startsWith('色') && !/^角色[A-Z]$/.test(cleanedRole)) {
           // If the role itself starts with "角色", extract the actual name
-          if (role.startsWith('角色')) {
-            const actualRole = role.substring(2);
+          if (cleanedRole.startsWith('角色')) {
+            const actualRole = cleanedRole.substring(2);
             if (actualRole) {
               characters.push(actualRole);
             }
-          } else {
-            characters.push(role);
+          } else if (cleanedRole) {
+            characters.push(cleanedRole);
           }
         }
       }
     }
     
     return [...new Set(characters)];
-  };;;
+  };;;;
 
   // Get character details with images for a list of character names
   const getCharacterDetails = (characterNames: string[]) => {
