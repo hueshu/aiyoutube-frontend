@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store'
+import { useAuthStore } from '../store/authStore'
 import { API_URL } from '../config/api';
-import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye, Palette, Info } from 'lucide-react';
+import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye, Palette, Info, FileText } from 'lucide-react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import aiStylesData from '../../docs/AI出图风格.json';
@@ -54,7 +55,9 @@ interface StyleCategory {
 
 const StoryboardWorkspace: React.FC = () => {
   const { scripts, characters, fetchScripts, fetchCharacters } = useStore();
+  const { user } = useAuthStore();
   const [selectedScriptId, setSelectedScriptId] = useState<string>('');
+  const [selectedScript, setSelectedScript] = useState<any>(null);
   const [scriptFrames, setScriptFrames] = useState<ScriptFrame[]>([]);
   const [characterMapping, setCharacterMapping] = useState<Record<string, number>>({});
   const [imageSize, setImageSize] = useState<string>('');
@@ -89,18 +92,31 @@ const StoryboardWorkspace: React.FC = () => {
   const [selectedStyle, setSelectedStyle] = useState<AIStyle | null>(null);
   const [translationOption, setTranslationOption] = useState<'none' | 'translate'>('none');
   const [isTranslating, setIsTranslating] = useState(false);
+  const [scriptModalOpen, setScriptModalOpen] = useState(false);
+  const [libraryScope, setLibraryScope] = useState<'mine' | 'system'>('mine');
+  const [canAccessSystem, setCanAccessSystem] = useState(false);
   const aiStyles = aiStylesData.ai_video_styles.categories as StyleCategory[];
 
   useEffect(() => {
-    // Load scripts and characters on mount
+    // Check if user can access system library
+    if (user) {
+      const canAccess = user.role === 'admin' ||
+                       user.role === 'employee' ||
+                       user.can_access_system_library === true;
+      setCanAccessSystem(canAccess);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    // Load scripts and characters based on scope
     const loadData = async () => {
-      console.log('Loading scripts and characters...');
-      await fetchScripts();
-      await fetchCharacters();
+      console.log('Loading scripts and characters with scope:', libraryScope);
+      await fetchScripts(libraryScope);
+      await fetchCharacters(libraryScope);
       console.log('Data loaded');
     };
     loadData();
-  }, []);
+  }, [libraryScope]);
 
   // Timer for generating frames
   useEffect(() => {
@@ -1381,25 +1397,31 @@ const StoryboardWorkspace: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-sm font-medium mb-2">选择脚本</label>
-            <select
-              value={selectedScriptId}
-              onChange={(e) => setSelectedScriptId(e.target.value)}
-              className="w-full border rounded px-3 py-2"
-            >
-              <option value="">选择脚本</option>
-              {scripts && scripts.length > 0 ? (
-                scripts.map((script: any) => {
-                  console.log('Rendering script:', script);
-                  return (
-                    <option key={script.id} value={script.id}>
-                      {script.name}
-                    </option>
-                  );
-                })
-              ) : (
-                <option disabled>加载中...</option>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setScriptModalOpen(true)}
+                className="flex-1 border rounded px-3 py-2 text-left hover:bg-gray-50 flex items-center justify-between"
+              >
+                {selectedScript ? (
+                  <span>{selectedScript.name}</span>
+                ) : (
+                  <span className="text-gray-400">点击选择脚本</span>
+                )}
+                <FileText className="w-4 h-4 text-gray-400" />
+              </button>
+              {selectedScript && (
+                <button
+                  onClick={() => {
+                    setSelectedScriptId('');
+                    setSelectedScript(null);
+                    setScriptFrames([]);
+                  }}
+                  className="px-3 py-2 border rounded hover:bg-red-50 text-red-500"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               )}
-            </select>
+            </div>
           </div>
           
           <div>
@@ -1574,9 +1596,41 @@ const StoryboardWorkspace: React.FC = () => {
             <div className="flex-1 flex flex-col">
               {/* Header */}
               <div className="p-4 border-b flex justify-between items-center">
-                <h3 className="text-lg font-semibold">
-                  为 <span className="text-blue-600">{characterModal.scriptChar}</span> 选择角色
-                </h3>
+                <div className="flex items-center gap-4">
+                  <h3 className="text-lg font-semibold">
+                    为 <span className="text-blue-600">{characterModal.scriptChar}</span> 选择角色
+                  </h3>
+                  {canAccessSystem && (
+                    <div className="flex rounded-lg overflow-hidden border">
+                      <button
+                        onClick={() => {
+                          setLibraryScope('mine');
+                          fetchCharacters('mine');
+                        }}
+                        className={`px-3 py-1 text-sm ${
+                          libraryScope === 'mine'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        我的角色
+                      </button>
+                      <button
+                        onClick={() => {
+                          setLibraryScope('system');
+                          fetchCharacters('system');
+                        }}
+                        className={`px-3 py-1 text-sm ${
+                          libraryScope === 'system'
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        系统角色
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={() => setCharacterModal({ isOpen: false, scriptChar: null, selectedCategory: '全部', selectedTags: [] })}
                   className="text-gray-500 hover:text-gray-700"
@@ -1731,7 +1785,7 @@ const StoryboardWorkspace: React.FC = () => {
                       </div>
                       
                       {/* Bottom half - Select and Info */}
-                      <div 
+                      <div
                         className="p-2 cursor-pointer hover:bg-blue-100 transition-colors"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1743,6 +1797,9 @@ const StoryboardWorkspace: React.FC = () => {
                         }}
                       >
                         <div className="text-sm font-medium text-center truncate">{char.name}</div>
+                        {libraryScope === 'system' && char.owner_name && (
+                          <div className="text-xs text-indigo-600 text-center truncate">{char.owner_name}</div>
+                        )}
                         {char.category && (
                           <div className="text-xs text-gray-400 text-center truncate mt-1">{char.category}</div>
                         )}
@@ -2508,6 +2565,167 @@ const StoryboardWorkspace: React.FC = () => {
                   确定
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Script Selection Modal */}
+      {scriptModalOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+          onClick={() => setScriptModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-[90vw] h-[85vh] w-[1200px] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="p-4 border-b flex justify-between items-center">
+              <div className="flex items-center gap-4">
+                <h3 className="text-lg font-semibold">选择脚本</h3>
+                {canAccessSystem && (
+                  <div className="flex rounded-lg overflow-hidden border">
+                    <button
+                      onClick={() => {
+                        setLibraryScope('mine');
+                        fetchScripts('mine');
+                      }}
+                      className={`px-3 py-1 text-sm ${
+                        libraryScope === 'mine'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      我的脚本
+                    </button>
+                    <button
+                      onClick={() => {
+                        setLibraryScope('system');
+                        fetchScripts('system');
+                      }}
+                      className={`px-3 py-1 text-sm ${
+                        libraryScope === 'system'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      系统脚本
+                    </button>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setScriptModalOpen(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex flex-1 overflow-hidden">
+              {/* Categories Sidebar */}
+              <div className="w-48 bg-gray-50 p-4 border-r overflow-y-auto">
+                <h4 className="font-semibold mb-4 text-gray-700">分类</h4>
+                <ul className="space-y-2">
+                  <li>
+                    <button
+                      className="w-full text-left px-3 py-2 rounded bg-blue-500 text-white"
+                    >
+                      全部脚本
+                    </button>
+                  </li>
+                  {[...new Set(scripts.map((s: any) => s.category || '未分类'))].map(category => (
+                    <li key={category}>
+                      <button
+                        className="w-full text-left px-3 py-2 rounded hover:bg-gray-200 text-gray-700"
+                      >
+                        {category}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Scripts Grid */}
+              <div className="flex-1 p-6 overflow-y-auto">
+                {scripts.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-gray-500">
+                    <FileText className="w-16 h-16 mb-4 text-gray-300" />
+                    <p className="text-lg mb-2">暂无脚本</p>
+                    <p className="text-sm">
+                      {libraryScope === 'mine' ? '您还没有上传任何脚本' : '系统库中暂无脚本'}
+                    </p>
+                    {libraryScope === 'mine' && canAccessSystem && (
+                      <button
+                        onClick={() => {
+                          setLibraryScope('system');
+                          fetchScripts('system');
+                        }}
+                        className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                      >
+                        查看系统脚本
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {scripts.map((script: any) => (
+                    <div
+                      key={script.id}
+                      className={`border rounded-lg p-4 cursor-pointer transition-all hover:shadow-lg ${
+                        selectedScriptId === String(script.id)
+                          ? 'ring-2 ring-blue-500 bg-blue-50'
+                          : 'hover:bg-gray-50'
+                      }`}
+                      onClick={() => {
+                        setSelectedScriptId(String(script.id));
+                        setSelectedScript(script);
+                        setScriptModalOpen(false);
+                      }}
+                    >
+                      <h4 className="font-semibold mb-2">{script.name}</h4>
+                      {libraryScope === 'system' && script.owner_name && (
+                        <p className="text-sm text-indigo-600 mb-1">所有者: {script.owner_name}</p>
+                      )}
+                      <p className="text-sm text-gray-500 mb-1">
+                        分类: {script.category || '未分类'}
+                      </p>
+                      {script.total_frames && (
+                        <p className="text-sm text-gray-500">
+                          帧数: {script.total_frames}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-2">
+                        {script.created_at ? new Date(script.created_at).toLocaleDateString() : ''}
+                      </p>
+                      {script.video_link && (
+                        <div className="mt-2">
+                          <span className="inline-flex items-center gap-1 text-xs text-blue-500">
+                            <Eye className="w-3 h-3" />
+                            有视频
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t flex justify-between items-center">
+              <div className="text-sm text-gray-500">
+                {selectedScript ? `已选择：${selectedScript.name}` : '未选择脚本'}
+              </div>
+              <button
+                onClick={() => setScriptModalOpen(false)}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                确定
+              </button>
             </div>
           </div>
         </div>

@@ -29,8 +29,8 @@ interface Store {
   characters: Character[]
   setScripts: (scripts: Script[]) => void
   setCharacters: (characters: Character[]) => void
-  fetchScripts: () => Promise<void>
-  fetchCharacters: () => Promise<void>
+  fetchScripts: (scope?: 'mine' | 'system') => Promise<void>
+  fetchCharacters: (scope?: 'mine' | 'system') => Promise<void>
 }
 
 export const useStore = create<Store>((set) => ({
@@ -40,22 +40,22 @@ export const useStore = create<Store>((set) => ({
   setScripts: (scripts) => set({ scripts }),
   setCharacters: (characters) => set({ characters }),
   
-  fetchScripts: async () => {
+  fetchScripts: async (scope = 'mine') => {
     // Get token from localStorage
     const token = localStorage.getItem('token')
     if (!token) {
       console.log('No token available, cannot fetch scripts');
       return
     }
-    
+
     try {
-      console.log('Fetching scripts from:', `${API_URL}/scripts`);
-      const response = await fetch(`${API_URL}/scripts`, {
+      console.log('Fetching scripts from:', `${API_URL}/scripts?scope=${scope}`);
+      const response = await fetch(`${API_URL}/scripts?scope=${scope}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       })
-      
+
       if (response.ok) {
         const data = await response.json()
         console.log('Scripts response:', data);
@@ -71,22 +71,22 @@ export const useStore = create<Store>((set) => ({
     }
   },
   
-  fetchCharacters: async () => {
+  fetchCharacters: async (scope = 'mine') => {
     // Get token from localStorage
     const token = localStorage.getItem('token')
     if (!token) {
       console.log('No token available, cannot fetch characters')
       return
     }
-    
+
     try {
-      console.log('Fetching characters from:', `${API_URL}/characters`)
-      const response = await fetch(`${API_URL}/characters`, {
+      console.log('Fetching characters from:', `${API_URL}/characters?scope=${scope}`)
+      const response = await fetch(`${API_URL}/characters?scope=${scope}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       })
-      
+
       if (response.ok) {
         const data = await response.json()
         console.log('Characters response:', data)
