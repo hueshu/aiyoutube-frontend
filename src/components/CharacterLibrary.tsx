@@ -1063,7 +1063,7 @@ export default function CharacterLibrary() {
             <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 text-white p-4">
               <h3 className="text-lg font-bold">{previewCharacter.name}</h3>
               <p className="text-sm">分类: {previewCharacter.category || '未分类'}</p>
-              <p className="text-xs">创建时间: {new Date(previewCharacter.created_at).toLocaleDateString()}</p>
+              <p className="text-xs">创建时间: {previewCharacter.created_at ? new Date(previewCharacter.created_at).toLocaleDateString() : '未知'}</p>
             </div>
           </div>
         </div>

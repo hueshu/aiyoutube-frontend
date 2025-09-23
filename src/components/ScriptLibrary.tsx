@@ -502,7 +502,7 @@ export default function ScriptLibrary() {
                   查看原视频
                 </a>
               )}
-              <p className="text-xs text-gray-400">创建时间: {new Date(script.created_at).toLocaleDateString()}</p>
+              <p className="text-xs text-gray-400">创建时间: {script.created_at ? new Date(script.created_at).toLocaleDateString() : '未知'}</p>
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
