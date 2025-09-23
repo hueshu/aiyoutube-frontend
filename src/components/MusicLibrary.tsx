@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Download, Edit, Trash2, Play, Pause, Plus, X, Music, MoreVertical } from 'lucide-react';
+import { Upload, Download, Edit, Trash2, Play, Pause, Plus, X, Music } from 'lucide-react';
 import { API_URL } from '../config/api';
 
 interface Music {
@@ -24,7 +24,6 @@ export default function MusicLibrary() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [newCategory, setNewCategory] = useState('');
-  const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editingCategoryName, setEditingCategoryName] = useState('');
 

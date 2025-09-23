@@ -120,24 +120,6 @@ const Navigation: React.FC = () => {
       </div>
     </nav>
   );
-            </div>
-          </div>
-          <div className="flex items-center space-x-4">
-            <span className="text-sm text-gray-600">
-              {user?.username} ({user?.role === 'admin' ? '管理员' : '用户'})
-            </span>
-            <button
-              onClick={handleLogout}
-              className="flex items-center space-x-1 text-sm text-red-600 hover:text-red-700"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>退出</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    </nav>
-  );
 };
 
 export default Navigation;
