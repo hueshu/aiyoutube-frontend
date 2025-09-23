@@ -18,7 +18,7 @@ interface Character {
 }
 
 export default function CharacterLibrary() {
-  const { characters, fetchCharacters } = useStore()
+  const { characters } = useStore()
   const { user } = useAuthStore()
   const [categories, setCategories] = useState<string[]>(['全部'])
   const [selectedCategory, setSelectedCategory] = useState('全部')

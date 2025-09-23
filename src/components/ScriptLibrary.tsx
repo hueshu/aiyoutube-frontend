@@ -20,7 +20,7 @@ interface Script {
 }
 
 export default function ScriptLibrary() {
-  const { scripts, fetchScripts } = useStore()
+  const { scripts } = useStore()
   const { user } = useAuthStore()
   const [categories, setCategories] = useState<string[]>(['全部'])
   const [selectedCategory, setSelectedCategory] = useState('全部')

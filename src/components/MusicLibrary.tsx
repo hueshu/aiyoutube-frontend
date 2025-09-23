@@ -58,6 +58,23 @@ export default function MusicLibrary() {
   }, []);
 
   useEffect(() => {
+    // Check if user can access system library
+    if (user) {
+      const canAccess = user.role === 'admin' ||
+                       user.role === 'employee' ||
+                       user.can_access_system_library === true;
+      setCanAccessSystem(canAccess);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    // Reload music when scope changes
+    if (!initialLoading) {
+      fetchMusicWithScope(libraryScope);
+    }
+  }, [libraryScope]);
+
+  useEffect(() => {
     if (audioRef.current) {
       const audio = audioRef.current;
       const updateTime = () => setCurrentTime(audio.currentTime);
