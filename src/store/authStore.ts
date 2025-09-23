@@ -5,7 +5,8 @@ import { API_URL } from '../config/api'
 interface User {
   id: number
   username: string
-  role: 'admin' | 'user'
+  role: 'admin' | 'user' | 'employee'
+  can_access_system_library?: boolean
 }
 
 interface AuthState {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Upload, Download, Edit, Trash2, Play, Pause, Plus, X, Music } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
 import { API_URL } from '../config/api';
 
 interface Music {
@@ -11,12 +12,18 @@ interface Music {
   duration?: string;
   created_at: string;
   updated_at: string;
+  owner_name?: string;
+  isOwner?: boolean;
+  user_id?: number;
 }
 
 export default function MusicLibrary() {
+  const { user } = useAuthStore();
   const [music, setMusic] = useState<Music[]>([]);
   const [categories, setCategories] = useState<string[]>(['全部']);
   const [selectedCategory, setSelectedCategory] = useState('全部');
+  const [libraryScope, setLibraryScope] = useState<'mine' | 'system'>('mine');
+  const [canAccessSystem, setCanAccessSystem] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -69,9 +76,9 @@ export default function MusicLibrary() {
     }
   }, [playingId]);
 
-  const fetchMusic = async () => {
+  const fetchMusicWithScope = async (scope: 'mine' | 'system') => {
     try {
-      const response = await fetch(`${API_URL}/music`, {
+      const response = await fetch(`${API_URL}/music?scope=${scope}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -83,6 +90,10 @@ export default function MusicLibrary() {
     } catch (error) {
       console.error('Failed to fetch music:', error);
     }
+  };
+
+  const fetchMusic = async () => {
+    await fetchMusicWithScope(libraryScope);
   };
 
   const fetchCategories = async () => {
@@ -402,10 +413,37 @@ export default function MusicLibrary() {
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">音乐库</h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-bold text-gray-900">音乐库</h2>
+          {canAccessSystem && (
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setLibraryScope('mine')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  libraryScope === 'mine'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                我的音乐库
+              </button>
+              <button
+                onClick={() => setLibraryScope('system')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  libraryScope === 'system'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                系统音乐库
+              </button>
+            </div>
+          )}
+        </div>
         <button
           onClick={() => setShowUploadModal(true)}
           className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+          disabled={libraryScope === 'system'}
         >
           <Upload className="w-4 h-4" />
           <span>上传音乐</span>
@@ -475,9 +513,14 @@ export default function MusicLibrary() {
                     </button>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <Music className="w-4 h-4 text-gray-400 mr-2" />
-                      <span className="text-gray-900">{item.name}</span>
+                    <div className="flex flex-col">
+                      <div className="flex items-center">
+                        <Music className="w-4 h-4 text-gray-400 mr-2" />
+                        <span className="text-gray-900">{item.name}</span>
+                      </div>
+                      {libraryScope === 'system' && item.owner_name && (
+                        <span className="text-xs text-indigo-600 ml-6">所有者: {item.owner_name}</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
@@ -500,20 +543,24 @@ export default function MusicLibrary() {
                       >
                         <Download className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => handleEdit(item)}
-                        className="text-gray-600 hover:text-blue-600 transition-colors"
-                        title="编辑"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(item.id)}
-                        className="text-gray-600 hover:text-red-600 transition-colors"
-                        title="删除"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {(libraryScope === 'mine' || item.isOwner) && (
+                        <>
+                          <button
+                            onClick={() => handleEdit(item)}
+                            className="text-gray-600 hover:text-blue-600 transition-colors"
+                            title="编辑"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(item.id)}
+                            className="text-gray-600 hover:text-red-600 transition-colors"
+                            title="删除"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

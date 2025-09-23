@@ -12,6 +12,9 @@ interface Character {
   image_url: string
   created_at: string
   updated_at: string
+  owner_name?: string
+  isOwner?: boolean
+  user_id?: number
 }
 
 export default function CharacterLibrary() {
@@ -19,6 +22,8 @@ export default function CharacterLibrary() {
   const { user } = useAuthStore()
   const [categories, setCategories] = useState<string[]>(['全部'])
   const [selectedCategory, setSelectedCategory] = useState('全部')
+  const [libraryScope, setLibraryScope] = useState<'mine' | 'system'>('mine')
+  const [canAccessSystem, setCanAccessSystem] = useState(false)
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
@@ -57,12 +62,12 @@ export default function CharacterLibrary() {
         return
       }
     }
-    
+
     const loadData = async () => {
       setInitialLoading(true)
       try {
         await Promise.all([
-          fetchCharacters(),
+          fetchCharactersWithScope('mine'),
           fetchCategories()
         ])
       } catch (error) {
@@ -73,6 +78,40 @@ export default function CharacterLibrary() {
     }
     loadData()
   }, [user]) // Add user as dependency
+
+  useEffect(() => {
+    // Check if user can access system library
+    if (user) {
+      const canAccess = user.role === 'admin' ||
+                       user.role === 'employee' ||
+                       user.can_access_system_library === true
+      setCanAccessSystem(canAccess)
+    }
+  }, [user])
+
+  useEffect(() => {
+    // Reload characters when scope changes
+    if (!initialLoading && user) {
+      fetchCharactersWithScope(libraryScope)
+    }
+  }, [libraryScope])
+
+  const fetchCharactersWithScope = async (scope: 'mine' | 'system') => {
+    try {
+      const response = await fetch(`${API_URL}/characters?scope=${scope}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        // Update store with fetched characters
+        useStore.setState({ characters: data.characters })
+      }
+    } catch (error) {
+      console.error('Failed to fetch characters:', error)
+    }
+  }
 
   const fetchCategories = async () => {
     try {
@@ -148,7 +187,7 @@ export default function CharacterLibrary() {
       if (response.ok) {
         setShowUploadModal(false)
         resetUploadForm()
-        await fetchCharacters()
+        await fetchCharactersWithScope(libraryScope)
         await fetchCategories()
         alert('上传成功！')
       } else {
@@ -211,7 +250,7 @@ export default function CharacterLibrary() {
       if (response.ok) {
         setShowEditModal(false)
         setEditingCharacter(null)
-        await fetchCharacters()
+        await fetchCharactersWithScope(libraryScope)
         await fetchCategories()
         alert('角色更新成功！图片文件名已同步更新')
       } else {
@@ -241,7 +280,7 @@ export default function CharacterLibrary() {
       })
       
       if (response.ok) {
-        await fetchCharacters()
+        await fetchCharactersWithScope(libraryScope)
       }
     } catch (error) {
       console.error('Delete failed:', error)
@@ -353,7 +392,7 @@ export default function CharacterLibrary() {
         }
         setEditingCategory(null)
         setEditingCategoryName('')
-        await fetchCharacters()
+        await fetchCharactersWithScope(libraryScope)
         alert('分类重命名成功')
       } else {
         const data = await response.json()
@@ -384,7 +423,7 @@ export default function CharacterLibrary() {
         if (selectedCategory === categoryName) {
           setSelectedCategory('全部')
         }
-        await fetchCharacters()
+        await fetchCharactersWithScope(libraryScope)
         alert('分类删除成功')
       } else {
         const data = await response.json()
@@ -432,10 +471,37 @@ export default function CharacterLibrary() {
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">角色库</h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-bold text-gray-900">角色库</h2>
+          {canAccessSystem && (
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setLibraryScope('mine')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  libraryScope === 'mine'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                我的角色库
+              </button>
+              <button
+                onClick={() => setLibraryScope('system')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  libraryScope === 'system'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                系统角色库
+              </button>
+            </div>
+          )}
+        </div>
         <button
           onClick={() => setShowUploadModal(true)}
           className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded flex items-center gap-2"
+          disabled={libraryScope === 'system'}
         >
           <Upload size={20} />
           上传角色
@@ -492,29 +558,44 @@ export default function CharacterLibrary() {
                 <h3 className="text-xs font-semibold truncate mb-1" title={character.name}>
                   {character.name}
                 </h3>
+                {libraryScope === 'system' && character.owner_name && (
+                  <p className="text-xs text-indigo-600 mb-1">所有者: {character.owner_name}</p>
+                )}
                 <p className="text-xs text-gray-500 mb-1">{character.category || '未分类'}</p>
                 <div className="flex flex-wrap gap-1">
-                  <button
-                    onClick={() => handleEdit(character)}
-                    className="text-xs bg-blue-200 hover:bg-blue-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
-                  >
-                    <Edit2 size={10} />
-                    编辑
-                  </button>
-                  <button
-                    onClick={() => handleDownload(character)}
-                    className="text-xs bg-green-200 hover:bg-green-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
-                  >
-                    <Download size={10} />
-                    下载
-                  </button>
-                  <button
-                    onClick={() => handleDelete(character.id)}
-                    className="text-xs bg-red-200 hover:bg-red-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
-                  >
-                    <Trash2 size={10} />
-                    删除
-                  </button>
+                  {(libraryScope === 'mine' || character.isOwner) ? (
+                    <>
+                      <button
+                        onClick={() => handleEdit(character)}
+                        className="text-xs bg-blue-200 hover:bg-blue-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+                      >
+                        <Edit2 size={10} />
+                        编辑
+                      </button>
+                      <button
+                        onClick={() => handleDownload(character)}
+                        className="text-xs bg-green-200 hover:bg-green-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+                      >
+                        <Download size={10} />
+                        下载
+                      </button>
+                      <button
+                        onClick={() => handleDelete(character.id)}
+                        className="text-xs bg-red-200 hover:bg-red-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+                      >
+                        <Trash2 size={10} />
+                        删除
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => handleDownload(character)}
+                      className="text-xs bg-green-200 hover:bg-green-300 px-1.5 py-0.5 rounded flex items-center gap-0.5"
+                    >
+                      <Download size={10} />
+                      下载
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

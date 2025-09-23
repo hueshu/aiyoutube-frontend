@@ -5,7 +5,8 @@ import { Users, BarChart, UserPlus, Trash2, Edit, Shield, Activity, Eye, EyeOff,
 interface User {
   id: number;
   username: string;
-  role: 'admin' | 'user';
+  role: 'admin' | 'user' | 'employee';
+  can_access_system_library?: boolean;
   created_at: string;
   last_login?: string;
   is_active: boolean;
@@ -89,7 +90,8 @@ const AdminPanel: React.FC = () => {
   const [formData, setFormData] = useState({
     username: '',
     password: '',
-    role: 'user' as 'admin' | 'user',
+    role: 'user' as 'admin' | 'user' | 'employee',
+    can_access_system_library: false,
     usage_limit: 1000,
     is_active: true,
     require_own_key: true
@@ -228,6 +230,7 @@ const AdminPanel: React.FC = () => {
       const updateData: any = {
         username: formData.username,
         role: formData.role,
+        can_access_system_library: formData.can_access_system_library,
         usage_limit: formData.usage_limit,
         is_active: formData.is_active
       };
@@ -314,6 +317,7 @@ const AdminPanel: React.FC = () => {
       username: '',
       password: '',
       role: 'user',
+      can_access_system_library: false,
       usage_limit: 1000,
       is_active: true,
       require_own_key: true
@@ -334,6 +338,7 @@ const AdminPanel: React.FC = () => {
       username: user.username,
       password: '',
       role: user.role,
+      can_access_system_library: user.can_access_system_library || false,
       usage_limit: user.usage_limit,
       is_active: user.is_active,
       require_own_key: user.require_own_key || false
@@ -439,9 +444,13 @@ const AdminPanel: React.FC = () => {
                       <td className="p-2">{user.username}</td>
                       <td className="p-2">
                         <span className={`px-2 py-1 rounded text-xs ${
-                          user.role === 'admin' ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'
+                          user.role === 'admin' ? 'bg-red-100 text-red-600' :
+                          user.role === 'employee' ? 'bg-purple-100 text-purple-600' :
+                          'bg-blue-100 text-blue-600'
                         }`}>
-                          {user.role}
+                          {user.role === 'admin' ? '管理员' :
+                           user.role === 'employee' ? '员工号' :
+                           '普通用户'}
                         </span>
                       </td>
                       <td className="p-2">
@@ -670,12 +679,33 @@ const AdminPanel: React.FC = () => {
                 <label className="block text-sm font-medium mb-1">角色</label>
                 <select
                   value={formData.role}
-                  onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'user' })}
+                  onChange={(e) => {
+                    const newRole = e.target.value as 'admin' | 'user' | 'employee';
+                    setFormData({
+                      ...formData,
+                      role: newRole,
+                      can_access_system_library: newRole === 'employee' ? true : formData.can_access_system_library
+                    });
+                  }}
                   className="w-full border rounded px-3 py-2"
                 >
                   <option value="user">普通用户</option>
+                  <option value="employee">员工号</option>
                   <option value="admin">管理员</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  <input
+                    type="checkbox"
+                    checked={formData.can_access_system_library || formData.role === 'employee'}
+                    disabled={formData.role === 'employee'}
+                    onChange={(e) => setFormData({ ...formData, can_access_system_library: e.target.checked })}
+                    className="mr-2"
+                  />
+                  允许访问系统库 {formData.role === 'employee' && <span className="text-gray-500 text-xs">(员工号默认开启)</span>}
+                </label>
               </div>
               
               <div>

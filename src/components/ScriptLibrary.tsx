@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useStore } from '../store'
+import { useAuthStore } from '../store/authStore'
 import { API_URL } from '../config/api'
 import { Download, Edit2, Trash2, Eye, Upload, Plus, Video, Settings } from 'lucide-react'
 
@@ -13,12 +14,18 @@ interface Script {
   updated_at: string
   total_frames?: number
   characters?: string[]
+  owner_name?: string
+  isOwner?: boolean
+  user_id?: number
 }
 
 export default function ScriptLibrary() {
   const { scripts, fetchScripts } = useStore()
+  const { user } = useAuthStore()
   const [categories, setCategories] = useState<string[]>(['全部'])
   const [selectedCategory, setSelectedCategory] = useState('全部')
+  const [libraryScope, setLibraryScope] = useState<'mine' | 'system'>('mine')
+  const [canAccessSystem, setCanAccessSystem] = useState(false)
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showPreviewModal, setShowPreviewModal] = useState(false)
@@ -43,13 +50,47 @@ export default function ScriptLibrary() {
     const loadData = async () => {
       setInitialLoading(true)
       await Promise.all([
-        fetchScripts(),
+        fetchScriptsWithScope('mine'),
         fetchCategories()
       ])
       setInitialLoading(false)
     }
     loadData()
   }, [])
+
+  useEffect(() => {
+    // Check if user can access system library
+    if (user) {
+      const canAccess = user.role === 'admin' ||
+                       user.role === 'employee' ||
+                       user.can_access_system_library === true
+      setCanAccessSystem(canAccess)
+    }
+  }, [user])
+
+  useEffect(() => {
+    // Reload scripts when scope changes
+    if (!initialLoading) {
+      fetchScriptsWithScope(libraryScope)
+    }
+  }, [libraryScope])
+
+  const fetchScriptsWithScope = async (scope: 'mine' | 'system') => {
+    try {
+      const response = await fetch(`${API_URL}/scripts?scope=${scope}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        // Update store with fetched scripts
+        useStore.setState({ scripts: data.scripts })
+      }
+    } catch (error) {
+      console.error('Failed to fetch scripts:', error)
+    }
+  }
 
   const fetchCategories = async () => {
     try {
@@ -119,7 +160,7 @@ export default function ScriptLibrary() {
       if (response.ok) {
         setShowUploadModal(false)
         resetUploadForm()
-        await fetchScripts()
+        await fetchScriptsWithScope(libraryScope)
         await fetchCategories()
         alert('上传成功！')
       } else {
@@ -167,7 +208,7 @@ export default function ScriptLibrary() {
       if (response.ok) {
         setShowEditModal(false)
         setEditingScript(null)
-        await fetchScripts()
+        await fetchScriptsWithScope(libraryScope)
         await fetchCategories()
       }
     } catch (error) {
@@ -190,7 +231,7 @@ export default function ScriptLibrary() {
       })
       
       if (response.ok) {
-        await fetchScripts()
+        await fetchScriptsWithScope(libraryScope)
       }
     } catch (error) {
       console.error('Delete failed:', error)
@@ -314,7 +355,7 @@ export default function ScriptLibrary() {
         }
         setEditingCategory(null)
         setEditingCategoryName('')
-        await fetchScripts()
+        await fetchScriptsWithScope(libraryScope)
         alert('分类重命名成功')
       } else {
         const data = await response.json()
@@ -345,7 +386,7 @@ export default function ScriptLibrary() {
         if (selectedCategory === categoryName) {
           setSelectedCategory('全部')
         }
-        await fetchScripts()
+        await fetchScriptsWithScope(libraryScope)
         alert('分类删除成功')
       } else {
         const data = await response.json()
@@ -364,10 +405,37 @@ export default function ScriptLibrary() {
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">脚本库</h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-bold text-gray-900">脚本库</h2>
+          {canAccessSystem && (
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              <button
+                onClick={() => setLibraryScope('mine')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  libraryScope === 'mine'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                我的脚本库
+              </button>
+              <button
+                onClick={() => setLibraryScope('system')}
+                className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                  libraryScope === 'system'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                系统脚本库
+              </button>
+            </div>
+          )}
+        </div>
         <button
           onClick={() => setShowUploadModal(true)}
           className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded flex items-center gap-2"
+          disabled={libraryScope === 'system'}
         >
           <Upload size={20} />
           上传脚本
@@ -413,6 +481,9 @@ export default function ScriptLibrary() {
           {filteredScripts.map((script: any) => (
             <div key={script.id} className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold mb-2">{script.name}</h3>
+              {libraryScope === 'system' && script.owner_name && (
+                <p className="text-sm text-indigo-600 mb-2">所有者: {script.owner_name}</p>
+              )}
               <p className="text-sm text-gray-500 mb-2">分类: {script.category || '未分类'}</p>
               {script.total_frames && (
                 <p className="text-sm text-gray-500 mb-2">帧数: {script.total_frames}</p>
@@ -432,7 +503,7 @@ export default function ScriptLibrary() {
                 </a>
               )}
               <p className="text-xs text-gray-400">创建时间: {new Date(script.created_at).toLocaleDateString()}</p>
-              
+
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   onClick={() => handlePreview(script)}
@@ -448,20 +519,24 @@ export default function ScriptLibrary() {
                   <Download size={14} />
                   下载
                 </button>
-                <button
-                  onClick={() => handleEdit(script)}
-                  className="text-sm bg-blue-200 hover:bg-blue-300 px-3 py-1 rounded flex items-center gap-1"
-                >
-                  <Edit2 size={14} />
-                  编辑
-                </button>
-                <button
-                  onClick={() => handleDelete(script.id)}
-                  className="text-sm bg-red-200 hover:bg-red-300 px-3 py-1 rounded flex items-center gap-1"
-                >
-                  <Trash2 size={14} />
-                  删除
-                </button>
+                {(libraryScope === 'mine' || script.isOwner) && (
+                  <>
+                    <button
+                      onClick={() => handleEdit(script)}
+                      className="text-sm bg-blue-200 hover:bg-blue-300 px-3 py-1 rounded flex items-center gap-1"
+                    >
+                      <Edit2 size={14} />
+                      编辑
+                    </button>
+                    <button
+                      onClick={() => handleDelete(script.id)}
+                      className="text-sm bg-red-200 hover:bg-red-300 px-3 py-1 rounded flex items-center gap-1"
+                    >
+                      <Trash2 size={14} />
+                      删除
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
