@@ -66,6 +66,7 @@ const StoryboardWorkspace: React.FC = () => {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewCharacter, setPreviewCharacter] = useState<any>(null);
   const [generatingFrames, setGeneratingFrames] = useState<Set<number>>(new Set());
+  const [generatingTimers, setGeneratingTimers] = useState<Map<number, number>>(new Map());
   const [expandedCharPreview, setExpandedCharPreview] = useState<string | null>(null);
   const [originalScriptFrames, setOriginalScriptFrames] = useState<ScriptFrame[]>([]);
   const [characterModal, setCharacterModal] = useState<{
@@ -100,6 +101,36 @@ const StoryboardWorkspace: React.FC = () => {
     };
     loadData();
   }, []);
+
+  // Timer for generating frames
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setGeneratingTimers(prev => {
+        const newTimers = new Map(prev);
+        generatingFrames.forEach(frameNumber => {
+          const currentTime = newTimers.get(frameNumber) || 0;
+          newTimers.set(frameNumber, currentTime + 1);
+        });
+        return newTimers;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [generatingFrames]);
+
+  // Helper function to clear generating state and timer
+  const clearGeneratingState = (frameNumber: number) => {
+    setGeneratingFrames(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(frameNumber);
+      return newSet;
+    });
+    setGeneratingTimers(prev => {
+      const newTimers = new Map(prev);
+      newTimers.delete(frameNumber);
+      return newTimers;
+    });
+  };
 
 
   useEffect(() => {
@@ -364,6 +395,11 @@ const StoryboardWorkspace: React.FC = () => {
     if (!frame) return;
 
     setGeneratingFrames(prev => new Set(prev).add(frameNumber));
+    setGeneratingTimers(prev => {
+      const newTimers = new Map(prev);
+      newTimers.set(frameNumber, 0);
+      return newTimers;
+    });
     
     try {
       let processedPrompt = processPrompt(frame);
@@ -470,11 +506,7 @@ const StoryboardWorkspace: React.FC = () => {
           return f;
         }));
         // Clear generating state for sync mode
-        setGeneratingFrames(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(frameNumber);
-          return newSet;
-        });
+        clearGeneratingState(frameNumber);
       } else if (response.status === 202 && data.task_id) {
         // Async mode - poll for status (Sora and other models)
         console.log('Generation started, task ID:', data.task_id);
@@ -496,11 +528,7 @@ const StoryboardWorkspace: React.FC = () => {
           return f;
         }));
         // Clear generating state for sync mode
-        setGeneratingFrames(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(frameNumber);
-          return newSet;
-        });
+        clearGeneratingState(frameNumber);
       } else {
         // Unexpected response or error
         const errorMsg = data?.error || `Unexpected response status ${response.status}`;
@@ -516,11 +544,7 @@ const StoryboardWorkspace: React.FC = () => {
             : f
         ));
         // Clear generating state on error
-        setGeneratingFrames(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(frameNumber);
-          return newSet;
-        });
+        clearGeneratingState(frameNumber);
       }
     } catch (error) {
       // Handle timeout and other errors
@@ -541,11 +565,7 @@ const StoryboardWorkspace: React.FC = () => {
         ));
       }
       // Clear generating state on exception
-      setGeneratingFrames(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(frameNumber);
-        return newSet;
-      });
+      clearGeneratingState(frameNumber);
     }
   };
 
@@ -659,11 +679,7 @@ const StoryboardWorkspace: React.FC = () => {
           }));
           
           // Remove from generating set
-          setGeneratingFrames(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(frameNumber);
-            return newSet;
-          });
+          clearGeneratingState(frameNumber);
         } else if (data.task?.status === 'failed') {
           // Failed
           clearInterval(pollInterval);
@@ -696,11 +712,7 @@ const StoryboardWorkspace: React.FC = () => {
           ));
           
           // Remove from generating set
-          setGeneratingFrames(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(frameNumber);
-            return newSet;
-          });
+          clearGeneratingState(frameNumber);
         } else if (attempts >= maxAttempts) {
           // Timeout after max attempts
           clearInterval(pollInterval);
@@ -712,11 +724,7 @@ const StoryboardWorkspace: React.FC = () => {
           ));
           
           // Remove from generating set
-          setGeneratingFrames(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(frameNumber);
-            return newSet;
-          });
+          clearGeneratingState(frameNumber);
         }
         // Otherwise continue polling...
       } catch (error) {
@@ -873,6 +881,11 @@ const StoryboardWorkspace: React.FC = () => {
           }
 
           setGeneratingFrames(prev => new Set(prev).add(frame.frame_number));
+          setGeneratingTimers(prev => {
+            const newTimers = new Map(prev);
+            newTimers.set(frame.frame_number, 0);
+            return newTimers;
+          });
           setScriptFrames(prev => prev.map(f =>
             f.frame_number === frame.frame_number
               ? { ...f, status: 'generating', progress: '提交中...' }
@@ -918,11 +931,7 @@ const StoryboardWorkspace: React.FC = () => {
               ? { ...f, status: 'failed', error: '提交失败', progress: undefined }
               : f
           ));
-          setGeneratingFrames(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(frame.frame_number);
-            return newSet;
-          });
+          clearGeneratingState(frame.frame_number);
           return { frame_number: frame.frame_number, error: error };
         }
       });
@@ -1016,11 +1025,7 @@ const StoryboardWorkspace: React.FC = () => {
             setBatchProgress(prev => prev ? { ...prev, current: completedCount } : null);
             console.log(`Frame ${frame_number} completed (${completedCount}/${submissions.length})`);
             
-            setGeneratingFrames(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(frame_number);
-              return newSet;
-            });
+            clearGeneratingState(frame_number);
             
             pendingTasks.delete(task.id);
           } else if (task.status === 'failed') {
@@ -1039,11 +1044,7 @@ const StoryboardWorkspace: React.FC = () => {
             
             failedCount++;
             
-            setGeneratingFrames(prev => {
-              const newSet = new Set(prev);
-              newSet.delete(frame_number);
-              return newSet;
-            });
+            clearGeneratingState(frame_number);
             
             pendingTasks.delete(task.id);
           }
@@ -1070,11 +1071,7 @@ const StoryboardWorkspace: React.FC = () => {
             ? { ...f, status: 'failed', error: '生成超时', progress: undefined }
             : f
         ));
-        setGeneratingFrames(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(frame_number);
-          return newSet;
-        });
+        clearGeneratingState(frame_number);
       }
     }
     
@@ -1792,7 +1789,7 @@ const StoryboardWorkspace: React.FC = () => {
               >
                 {isTranslating ? '翻译中...' : loading ? (batchProgress ? `生成中 (${batchProgress.current + 1}/${batchProgress.total})` : '生成中...') : '批量生成分镜图'}
               </button>
-              {scriptFrames.some(f => f.generated_image) && (
+              {scriptFrames.some(f => f.generated_image || (f.generated_images && f.generated_images.length > 0)) && (
                 <button
                   onClick={downloadAllImages}
                   disabled={downloadProgress.isDownloading}
@@ -1971,10 +1968,17 @@ const StoryboardWorkspace: React.FC = () => {
                             ))}
                           </div>
                           {generatingFrames.has(frame.frame_number) && (
-                            <div className="flex items-center justify-center mt-2">
-                              <Loader className="w-6 h-6 animate-spin text-blue-500" />
-                              {frame.progress && (
-                                <span className="text-xs text-gray-500 ml-2">{frame.progress}</span>
+                            <div className="flex flex-col items-center justify-center mt-2">
+                              <div className="flex items-center">
+                                <Loader className="w-6 h-6 animate-spin text-blue-500" />
+                                {frame.progress && (
+                                  <span className="text-xs text-gray-500 ml-2">{frame.progress}</span>
+                                )}
+                              </div>
+                              {generatingTimers.get(frame.frame_number) !== undefined && (
+                                <div className="text-xs text-gray-400 mt-1">
+                                  {generatingTimers.get(frame.frame_number)}秒
+                                </div>
                               )}
                             </div>
                           )}
@@ -1984,6 +1988,11 @@ const StoryboardWorkspace: React.FC = () => {
                           <Loader className="w-6 h-6 animate-spin text-blue-500" />
                           {frame.progress && (
                             <div className="text-xs text-gray-500 mt-1 text-center">{frame.progress}</div>
+                          )}
+                          {generatingTimers.get(frame.frame_number) !== undefined && (
+                            <div className="text-xs text-gray-400 mt-1">
+                              {generatingTimers.get(frame.frame_number)}秒
+                            </div>
                           )}
                         </div>
                       ) : frame.status === 'failed' ? (
