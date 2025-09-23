@@ -367,13 +367,13 @@ const StoryboardWorkspace: React.FC = () => {
     // These are pre-uploaded ratio templates in R2 storage
     // Format matches the backend's expected pattern: /api/v1/storage/{path}
     const ratioMap: Record<string, string> = {
-      '[1:1]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/1_1_ratio_template.jpg',
-      '[16:9]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/16_9_ratio_template.jpg',
-      '[4:3]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/4_3_ratio_template.jpg',
-      '[3:2]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/3_2_ratio_template.jpg',
-      '[9:16]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/9_16_ratio_template.jpg',
-      '[3:4]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/3_4_ratio_template.jpg',
-      '[2:3]': 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/ratio-templates/2_3_ratio_template.jpg'
+      '[1:1]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/1_1_ratio_template.jpg',
+      '[16:9]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/16_9_ratio_template.jpg',
+      '[4:3]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/4_3_ratio_template.jpg',
+      '[3:2]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/3_2_ratio_template.jpg',
+      '[9:16]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/9_16_ratio_template.jpg',
+      '[3:4]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/3_4_ratio_template.jpg',
+      '[2:3]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/2_3_ratio_template.jpg'
     };
     return ratioMap[imageSize] || null;
   };
@@ -577,7 +577,7 @@ const StoryboardWorkspace: React.FC = () => {
     }
 
     try {
-      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/translate', {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/translate', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${getAuthToken()}`,
@@ -606,7 +606,7 @@ const StoryboardWorkspace: React.FC = () => {
     }
 
     try {
-      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/translate', {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/translate', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${getAuthToken()}`,

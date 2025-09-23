@@ -132,7 +132,7 @@ const LogsPage: React.FC = () => {
         data: {
           frameNumber: 1,
           model: 'gemini',
-          characterImage: 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/character/5/xxx.png'
+          characterImage: 'https://aiyoutubebackendprod.email777.org/api/v1/storage/character/5/xxx.png'
         }
       },
       {
@@ -141,8 +141,8 @@ const LogsPage: React.FC = () => {
         step: 'GeminiServiceV2 Step 1',
         message: '清理URL（移除末尾斜杠）',
         data: {
-          original: 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/character/5/xxx.png/',
-          cleaned: 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/storage/character/5/xxx.png'
+          original: 'https://aiyoutubebackendprod.email777.org/api/v1/storage/character/5/xxx.png/',
+          cleaned: 'https://aiyoutubebackendprod.email777.org/api/v1/storage/character/5/xxx.png'
         }
       },
       {
@@ -216,7 +216,7 @@ const LogsPage: React.FC = () => {
         data: {
           proxyUrl: 'https://aiyoutube-proxy.xxx.run.app/generate',
           taskId: 'task-uuid-123',
-          callbackUrl: 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/generation/callback'
+          callbackUrl: 'https://aiyoutubebackendprod.email777.org/api/v1/generation/callback'
         }
       },
       {

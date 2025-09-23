@@ -1,1 +1,1 @@
-export const API_URL = import.meta.env.VITE_API_URL || 'https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1';
+export const API_URL = import.meta.env.VITE_API_URL || 'https://aiyoutubebackendprod.email777.org/api/v1';

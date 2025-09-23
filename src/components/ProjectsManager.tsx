@@ -63,7 +63,7 @@ const ProjectsManager: React.FC = () => {
 
   const fetchProjects = async () => {
     try {
-      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/projects', {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/projects', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -81,7 +81,7 @@ const ProjectsManager: React.FC = () => {
   const createProject = async () => {
     setLoading(true);
     try {
-      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/projects', {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/projects', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -111,7 +111,7 @@ const ProjectsManager: React.FC = () => {
     
     setLoading(true);
     try {
-      const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/projects/${selectedProject.id}`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/projects/${selectedProject.id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -140,7 +140,7 @@ const ProjectsManager: React.FC = () => {
     if (!confirm('Are you sure you want to delete this project?')) return;
     
     try {
-      const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/projects/${id}`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/projects/${id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -162,7 +162,7 @@ const ProjectsManager: React.FC = () => {
   const startGeneration = async (projectId: number) => {
     setLoading(true);
     try {
-      const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/projects/${projectId}/generate`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/projects/${projectId}/generate`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -187,7 +187,7 @@ const ProjectsManager: React.FC = () => {
 
   const checkTaskStatus = async (taskId: string) => {
     try {
-      const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/generation/task/${taskId}`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/generation/task/${taskId}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -208,7 +208,7 @@ const ProjectsManager: React.FC = () => {
 
   const fetchGenerationResults = async (taskId: string) => {
     try {
-      const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/generation/results/${taskId}`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/generation/results/${taskId}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }

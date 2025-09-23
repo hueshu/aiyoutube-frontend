@@ -116,7 +116,7 @@ const AdminPanel: React.FC = () => {
   const fetchUsers = async () => {
     setLoadingUsers(true);
     try {
-      const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users?search=${searchTerm}`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/admin/users?search=${searchTerm}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -138,7 +138,7 @@ const AdminPanel: React.FC = () => {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/stats', {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/admin/stats', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -190,7 +190,7 @@ const AdminPanel: React.FC = () => {
 
     setLoading(true);
     try {
-      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users', {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/admin/users', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -236,7 +236,7 @@ const AdminPanel: React.FC = () => {
         updateData.password = formData.password;
       }
 
-      const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users/${selectedUser.id}`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/admin/users/${selectedUser.id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -264,7 +264,7 @@ const AdminPanel: React.FC = () => {
 
   const toggleRequireOwnKey = async (userId: number, requireOwnKey: boolean) => {
     try {
-      const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/settings/admin/user/${userId}/require-key`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/settings/admin/user/${userId}/require-key`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -289,7 +289,7 @@ const AdminPanel: React.FC = () => {
     if (!confirm(`确定要删除用户 "${username}" 吗？\n\n此操作不可恢复，该用户的所有数据将被永久删除。`)) return;
 
     try {
-      const response = await fetch(`https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/admin/users/${userId}`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`

@@ -57,7 +57,7 @@ const Settings: React.FC = () => {
 
   const fetchSettings = async () => {
     try {
-      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/settings', {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/settings', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
@@ -85,7 +85,7 @@ const Settings: React.FC = () => {
 
     setSaving(true)
     try {
-      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/settings/api-key', {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/settings/api-key', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -124,7 +124,7 @@ const Settings: React.FC = () => {
 
     setTesting(true)
     try {
-      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/settings/test-api-key', {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/settings/test-api-key', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -154,7 +154,7 @@ const Settings: React.FC = () => {
     }
 
     try {
-      const response = await fetch('https://aiyoutube-backend-prod.hueshu.workers.dev/api/v1/settings/api-key', {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/settings/api-key', {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
