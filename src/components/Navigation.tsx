@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { Home, FileText, Users, Palette, Folder, Shield, LogOut, FileSearch, Settings, BookOpen, ChevronDown, Music } from 'lucide-react';
+import { Home, FileText, Users, Palette, Folder, Shield, LogOut, FileSearch, Settings, BookOpen, ChevronDown, Music, Video } from 'lucide-react';
 
 const Navigation: React.FC = () => {
   const location = useLocation();
@@ -13,6 +13,7 @@ const Navigation: React.FC = () => {
     { path: '/', label: '首页', icon: Home },
     { path: '/workspace', label: '工作台', icon: Palette },
     { path: '/projects', label: '项目管理', icon: Folder },
+    { path: '/video-prompt', label: '视频Prompt', icon: Video },
     { path: '/logs', label: '日志监控', icon: FileSearch },
     { path: '/settings', label: '设置', icon: Settings },
   ];

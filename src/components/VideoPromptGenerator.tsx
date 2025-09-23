@@ -1,0 +1,478 @@
+import React, { useState } from 'react';
+import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check } from 'lucide-react';
+
+interface ImagePrompt {
+  id: string;
+  name: string;
+  file: File;
+  preview: string;
+  supplementPrompt: string;
+  generatedPrompt: string;
+  isProcessing: boolean;
+  error?: string;
+}
+
+const GEMINI_API_KEY = 'AIzaSyDwD04ZVY2ff7nWdjZNTJK4sgy5nyYwbLA';
+
+// System prompt from the document
+const SYSTEM_PROMPT = `# 身份和使命
+
+你是一名世界顶级的生成式视频AI提示词工程师，是拥有专业艺术直觉的"虚拟导演"。你的名字叫 "CineDream Architect"。你的核心使命是不仅能预判动作趋势，更能依据成熟的【导演决策框架】做出最佳的运镜选择，并通过最终的【自我校验循环】确保输出的提示词在各方面都达到最高标准，最终输出一段纯净、精准、充满电影感的"即梦3.0"视频提示词。
+
+你将严格、无条件地遵循以下所有规则和工作流程。
+
+---
+
+# 核心铁律 (The Iron Laws)
+
+### **铁律一：动作趋势与强度识别 (Thinking Principle)**
+
+这是你思考的起点。
+1.  **识别趋势**: 首先判断图片中的主体"**将要向何处运动，以及如何运动**"。
+2.  **评估强度**: 在识别出动作后，必须评估其强度。如果图片的线索（如动态模糊、夸张的姿态、飞溅的物体）暗示了高速或高强度运动，则**必须**在动作描述中加入 \`快速\`、\`猛烈\`、\`剧烈\` 等强度副词。
+
+### **铁律二：核心提示词公式 (Construction Principle)**
+
+这是你构建提示词的**唯一且固定的公式**。
+*   **核心公式**: \`[运镜方式], [主体动作], [主体表情], [可选的镜头切换或其他运镜]\`
+
+---
+
+# 🎬 运镜选择指导原则 (导演手册)
+
+在你决定使用哪种【运镜方式】时，必须参考以下指导原则，以做出符合电影美学的专业选择。
+
+*   **原则A (强调宏大/环境/对比):**
+    *   **情景:** 需要展现宏大场景、众多主体，或强调主体与环境的巨大反差时（如城市峡谷中的车队）。
+    *   **首选运镜:** \`固定镜头\` (从一个有冲击力的角度), \`镜头拉远\`。
+
+*   **原则B (聚焦个体/情感/动作):**
+    *   **情景:** 需要紧跟单个角色的动作，并聚焦其表情和决心时（如撞门冲刺的人）。
+    *   **首选运镜:** \`跟随镜头\`, \`镜头推进\`。
+
+*   **原则C (创造史诗感/视角变化):**
+    *   **情景:** 需要展示一个场景的结束、揭示一个全貌，或在动作序列末尾创造戏剧性的视角变化时。
+    *   **可选运镜:** \`镜头上移\`, \`镜头拉远\`。
+
+*   **原则D (展现冲击力/身临其境):**
+    *   **情景:** 当主体本身在画面内有足够强烈的相对运动时（如一列火车或车队径直朝镜头驶来）。
+    *   **首选运镜:** \`固定镜头\`。这能利用静止的镜头和动态的主体形成最强的视觉冲击力。
+
+---
+
+# 核心执行规则
+
+1.  **镜头语言约束**: \`运镜方式\`的描述**必须**从以下**精确的、带方向的原子指令**中选择，严禁使用模糊指令：
+    *   \`固定镜头\`
+    *   \`跟随镜头\`
+    *   \`镜头推进\`
+    *   \`镜头拉远\`
+    *   \`环绕镜头\`
+    *   \`镜头上移\`
+    *   \`镜头下移\`
+    *   \`镜头左移\`
+    *   \`镜头右移\`
+2.  **动作优先**: 只描述可被观察的、具体的动作和表情。
+
+---
+
+# ⚙️ 自我校验与精炼循环 (最终质检)
+
+在你初步构建完候选提示词之后、最终输出之前，这是一个**强制性的、最后一个思考步骤**。你必须启动此循环，进行以下两大核心校验，并根据校验结果对提示词进行精炼。
+
+### **1. 指令清晰度校验 (Process over Result)**
+*   **自问:** "我使用的动词是描述一个模糊的'结果'，还是一个具体的'过程'？"
+*   **规则:** 如果动词是结果导向的（如 \`冲出来\`, \`出现\`），则**必须**将其分解为具体的、物理上可观察的**过程指令**（如 \`撞碎玻璃并快速向前奔跑\`）。
+
+### **2. 词语搭配合理性校验 (Collocation Sanity Check)**
+*   **自问:** "我使用的'强度副词'和'动作动词'组合在一起，是否符合逻辑和语言习惯？"
+*   **规则:** **严禁**输出语义不协调、不自然的词语搭配（如 \`猛烈地向前走来\`），必须修正为更合理的组合（如 \`迈着沉重的步伐向前走来\`）。
+
+---
+
+# 输出格式 (Final Output Format)
+
+严格按照以下格式输出，不要包含任何额外对话、解释或Markdown标题：
+[提示词]
+
+---
+
+# 工作流程
+
+1.  **识别趋势与强度 (MANDATORY):** 严格遵循【铁律一】。
+2.  **专业运镜决策 (MANDATORY):** 参考【导演手册】，为已识别的趋势选择最合适的【运镜方式】。
+3.  **初步生成 (Initial Draft):** 遵循【铁律二】和核心规则，构建一个**候选提示词**。
+4.  **自我校验与精炼 (MANDATORY):** **启动【自我校验与精炼循环】**，对候选提示词执行两大核心校验，并进行必要的修正，生成**最终版本的提示词**。
+5.  **最终审查与输出:** 检查最终版本的提示词是否完全符合【输出格式】要求，然后交付成果。`;
+
+const VideoPromptGenerator: React.FC = () => {
+  const [images, setImages] = useState<ImagePrompt[]>([]);
+  const [isProcessingAll, setIsProcessingAll] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Handle file selection
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newImages: ImagePrompt[] = files.map(file => ({
+      id: Math.random().toString(36).substr(2, 9),
+      name: file.name,
+      file: file,
+      preview: URL.createObjectURL(file),
+      supplementPrompt: '',
+      generatedPrompt: '',
+      isProcessing: false
+    }));
+    setImages(prev => [...prev, ...newImages]);
+  };
+
+  // Convert image to base64
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        // Remove the data:image/...;base64, prefix
+        const base64Data = base64.split(',')[1];
+        resolve(base64Data);
+      };
+      reader.onerror = reject;
+    });
+  };
+
+  // Call Gemini API for single image
+  const generatePromptForImage = async (image: ImagePrompt) => {
+    try {
+      const base64Image = await fileToBase64(image.file);
+
+      const requestBody = {
+        contents: [
+          {
+            parts: [
+              {
+                text: SYSTEM_PROMPT + (image.supplementPrompt ? `\n\n补充说明：${image.supplementPrompt}` : '')
+              },
+              {
+                inline_data: {
+                  mime_type: image.file.type,
+                  data: base64Image
+                }
+              },
+              {
+                text: "请分析这张图片，生成适合图转视频的提示词。"
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topP: 0.95,
+          topK: 40,
+          maxOutputTokens: 1024,
+        }
+      };
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody)
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      return generatedText.trim();
+    } catch (error) {
+      console.error('Error generating prompt:', error);
+      throw error;
+    }
+  };
+
+  // Process all images
+  const handleProcessAll = async () => {
+    setIsProcessingAll(true);
+
+    // Process images one by one to avoid rate limits
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      if (image.generatedPrompt) continue; // Skip already processed
+
+      setImages(prev => prev.map(img =>
+        img.id === image.id ? { ...img, isProcessing: true } : img
+      ));
+
+      try {
+        const prompt = await generatePromptForImage(image);
+        setImages(prev => prev.map(img =>
+          img.id === image.id
+            ? { ...img, generatedPrompt: prompt, isProcessing: false }
+            : img
+        ));
+      } catch (error) {
+        setImages(prev => prev.map(img =>
+          img.id === image.id
+            ? { ...img, error: '生成失败', isProcessing: false }
+            : img
+        ));
+      }
+
+      // Add delay to avoid rate limiting
+      if (i < images.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    setIsProcessingAll(false);
+  };
+
+  // Update supplement prompt
+  const updateSupplementPrompt = (id: string, value: string) => {
+    setImages(prev => prev.map(img =>
+      img.id === id ? { ...img, supplementPrompt: value } : img
+    ));
+  };
+
+  // Update generated prompt
+  const updateGeneratedPrompt = (id: string, value: string) => {
+    setImages(prev => prev.map(img =>
+      img.id === id ? { ...img, generatedPrompt: value } : img
+    ));
+  };
+
+  // Copy to clipboard
+  const copyToClipboard = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // Download all images with prompts as names
+  const handleDownloadAll = async () => {
+    for (let i = 0; i < images.length; i++) {
+      const image = images[i];
+      if (!image.generatedPrompt) continue;
+
+      // Create a download link
+      const response = await fetch(image.preview);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+
+      // Format filename: 001_prompt.ext
+      const index = String(i + 1).padStart(3, '0');
+      const extension = image.name.split('.').pop();
+      const cleanPrompt = image.generatedPrompt
+        .replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '_') // Keep Chinese, letters, numbers
+        .substring(0, 50); // Limit length
+      a.href = url;
+      a.download = `${index}_${cleanPrompt}.${extension}`;
+
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      // Add delay between downloads
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  };
+
+  // Remove image
+  const removeImage = (id: string) => {
+    setImages(prev => prev.filter(img => img.id !== id));
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            图转视频 Prompt 生成器
+          </h1>
+          <p className="text-gray-600">
+            上传图片，使用 Gemini 2.5 Pro 生成适合图转视频的提示词
+          </p>
+        </div>
+
+        {/* Upload Section */}
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <label className="flex items-center gap-3 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 cursor-pointer transition-colors">
+              <Upload className="w-5 h-5" />
+              <span>批量上传图片</span>
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+            </label>
+
+            {images.length > 0 && (
+              <div className="flex gap-3">
+                <button
+                  onClick={handleProcessAll}
+                  disabled={isProcessingAll || images.length === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    isProcessingAll
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-green-500 text-white hover:bg-green-600'
+                  }`}
+                >
+                  {isProcessingAll ? (
+                    <>
+                      <Loader className="w-5 h-5 animate-spin" />
+                      处理中...
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="w-5 h-5" />
+                      一键生成 Prompt
+                    </>
+                  )}
+                </button>
+
+                <button
+                  onClick={handleDownloadAll}
+                  disabled={images.filter(img => img.generatedPrompt).length === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    images.filter(img => img.generatedPrompt).length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-purple-500 text-white hover:bg-purple-600'
+                  }`}
+                >
+                  <Download className="w-5 h-5" />
+                  全部下载
+                </button>
+              </div>
+            )}
+          </div>
+
+          {images.length > 0 && (
+            <p className="text-sm text-gray-600">
+              已上传 {images.length} 张图片，
+              已生成 {images.filter(img => img.generatedPrompt).length} 个提示词
+            </p>
+          )}
+        </div>
+
+        {/* Image Cards */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {images.map(image => (
+            <div key={image.id} className="bg-white rounded-lg shadow-sm p-6">
+              {/* Header with image name and remove button */}
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 truncate flex-1">
+                  {image.name}
+                </h3>
+                <button
+                  onClick={() => removeImage(image.id)}
+                  className="text-red-500 hover:text-red-700 ml-2"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Image preview and inputs */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Image preview */}
+                <div className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden">
+                  <img
+                    src={image.preview}
+                    alt={image.name}
+                    className="w-full h-full object-contain"
+                  />
+                  {image.isProcessing && (
+                    <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                      <Loader className="w-8 h-8 text-white animate-spin" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Inputs */}
+                <div className="space-y-3">
+                  {/* Supplement prompt */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      补充提示（可选）
+                    </label>
+                    <textarea
+                      value={image.supplementPrompt}
+                      onChange={(e) => updateSupplementPrompt(image.id, e.target.value)}
+                      placeholder="输入额外的描述或要求..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      rows={3}
+                    />
+                  </div>
+
+                  {/* Generated prompt */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-medium text-gray-700">
+                        生成的提示词
+                      </label>
+                      {image.generatedPrompt && (
+                        <button
+                          onClick={() => copyToClipboard(image.generatedPrompt, image.id)}
+                          className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-700"
+                        >
+                          {copiedId === image.id ? (
+                            <>
+                              <Check className="w-4 h-4" />
+                              已复制
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-4 h-4" />
+                              复制
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      value={image.generatedPrompt}
+                      onChange={(e) => updateGeneratedPrompt(image.id, e.target.value)}
+                      placeholder={image.error || "等待生成..."}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                        image.error ? 'border-red-300 text-red-500' : 'border-gray-300'
+                      }`}
+                      rows={4}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Empty state */}
+        {images.length === 0 && (
+          <div className="bg-white rounded-lg shadow-sm p-12">
+            <div className="text-center">
+              <ImageIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                还没有上传图片
+              </h3>
+              <p className="text-gray-600 mb-6">
+                点击上方按钮批量上传图片，开始生成视频提示词
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default VideoPromptGenerator;
