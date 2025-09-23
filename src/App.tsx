@@ -5,6 +5,7 @@ import LoginPage from './components/LoginPage'
 import Dashboard from './components/Dashboard'
 import ScriptLibrary from './components/ScriptLibrary'
 import CharacterLibrary from './components/CharacterLibrary'
+import MusicLibrary from './components/MusicLibrary'
 import StoryboardWorkspace from './components/StoryboardWorkspace'
 import ProjectsManager from './components/ProjectsManager'
 import AdminPanel from './components/AdminPanel'
@@ -50,6 +51,7 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/scripts" element={<ScriptLibrary />} />
             <Route path="/characters" element={<CharacterLibrary />} />
+            <Route path="/music" element={<MusicLibrary />} />
             <Route path="/workspace" element={<StoryboardWorkspace />} />
             <Route path="/projects" element={<ProjectsManager />} />
             <Route path="/logs" element={<LogsPage />} />
