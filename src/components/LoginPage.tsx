@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 
 export default function LoginPage() {
-  const [isLogin, setIsLogin] = useState(true)
+  // 固定为登录模式，移除注册功能
+  const isLogin = true
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -40,7 +41,7 @@ export default function LoginPage() {
             AIYOUTUBE 分镜生成平台
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            {isLogin ? '登录到您的账户' : '创建新账户'}
+            登录到您的账户
           </p>
         </div>
         
@@ -90,22 +91,11 @@ export default function LoginPage() {
               disabled={loading}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
             >
-              {loading ? '处理中...' : (isLogin ? '登录' : '注册')}
+              {loading ? '处理中...' : '登录'}
             </button>
           </div>
 
-          <div className="text-center">
-            <button
-              type="button"
-              className="text-sm text-indigo-600 hover:text-indigo-500"
-              onClick={() => {
-                setIsLogin(!isLogin)
-                setError('')
-              }}
-            >
-              {isLogin ? '还没有账户？注册' : '已有账户？登录'}
-            </button>
-          </div>
+          {/* 注册功能已禁用 - 新账户由管理员创建 */}
         </form>
       </div>
     </div>
