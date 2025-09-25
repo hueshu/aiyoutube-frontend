@@ -9,7 +9,8 @@ interface Script {
   name: string
   csv_content: string
   category?: string
-  video_link?: string
+  video_link?: string  // 视频链接
+  video_url?: string   // 上传的视频文件URL
   created_at: string
   updated_at: string
   total_frames?: number
@@ -31,6 +32,7 @@ export default function ScriptLibrary() {
   const [showPreviewModal, setShowPreviewModal] = useState(false)
   const [showCategoryModal, setShowCategoryModal] = useState(false)
   const [editingScript, setEditingScript] = useState<Script | null>(null)
+  const [editingVideoFile, setEditingVideoFile] = useState<File | null>(null)
   const [previewScript, setPreviewScript] = useState<Script | null>(null)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
@@ -44,6 +46,7 @@ export default function ScriptLibrary() {
   const [uploadName, setUploadName] = useState('')
   const [uploadCategory, setUploadCategory] = useState('')
   const [uploadVideoLink, setUploadVideoLink] = useState('')
+  const [uploadVideoFile, setUploadVideoFile] = useState<File | null>(null)
 
   useEffect(() => {
     // Load data immediately
@@ -142,6 +145,9 @@ export default function ScriptLibrary() {
     if (uploadVideoLink) {
       formData.append('video_link', uploadVideoLink)
     }
+    if (uploadVideoFile) {
+      formData.append('video_file', uploadVideoFile)
+    }
     
     try {
       console.log('Sending request to:', `${API_URL}/scripts`)
@@ -179,6 +185,7 @@ export default function ScriptLibrary() {
     setUploadName('')
     setUploadCategory('')
     setUploadVideoLink('')
+    setUploadVideoFile(null)
   }
 
   const handleEdit = (script: Script) => {
@@ -189,25 +196,46 @@ export default function ScriptLibrary() {
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingScript) return
-    
+
     setLoading(true)
     try {
-      const response = await fetch(`${API_URL}/scripts/${editingScript.id}`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          name: editingScript.name,
-          category: editingScript.category,
-          video_link: editingScript.video_link
+      let response
+      // 如果有视频文件，使用FormData
+      if (editingVideoFile) {
+        const formData = new FormData()
+        formData.append('name', editingScript.name)
+        formData.append('category', editingScript.category || '')
+        if (editingScript.video_link) {
+          formData.append('video_link', editingScript.video_link)
+        }
+        formData.append('video_file', editingVideoFile)
+
+        response = await fetch(`${API_URL}/scripts/${editingScript.id}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: formData
         })
-      })
+      } else {
+        response = await fetch(`${API_URL}/scripts/${editingScript.id}`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            name: editingScript.name,
+            category: editingScript.category,
+            video_link: editingScript.video_link
+          })
+        })
+      }
       
       if (response.ok) {
         setShowEditModal(false)
         setEditingScript(null)
+        setEditingVideoFile(null)
         await fetchScriptsWithScope(libraryScope)
         await fetchCategories()
       }
@@ -246,7 +274,7 @@ export default function ScriptLibrary() {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       })
-      
+
       if (response.ok) {
         const blob = await response.blob()
         const url = window.URL.createObjectURL(blob)
@@ -261,6 +289,56 @@ export default function ScriptLibrary() {
     } catch (error) {
       console.error('Download failed:', error)
       alert('下载失败')
+    }
+  }
+
+  const handleDownloadVideo = async (script: Script) => {
+    if (!script.video_url) {
+      alert('该脚本没有视频文件')
+      return
+    }
+
+    try {
+      // 先检查文件是否存在
+      const checkResponse = await fetch(script.video_url, { method: 'HEAD' }).catch(() => null)
+
+      if (!checkResponse || !checkResponse.ok) {
+        // 如果文件不存在，提供友好提示
+        console.error('Video file not found:', script.video_url)
+        alert('视频文件不存在或已被删除。请重新上传视频文件。')
+        return
+      }
+
+      // 下载视频文件
+      const response = await fetch(script.video_url)
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        // 从URL中提取文件名或使用脚本名称
+        const urlParts = script.video_url.split('/')
+        const filename = decodeURIComponent(urlParts[urlParts.length - 1]) || `${script.name}_video.mp4`
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+      } else {
+        if (response.status === 404) {
+          alert('视频文件不存在，可能已被删除。请重新上传视频。')
+        } else {
+          alert(`视频下载失败 (错误代码: ${response.status})`)
+        }
+      }
+    } catch (error) {
+      console.error('Video download failed:', error)
+      // 提供更详细的错误信息
+      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+        alert('网络连接失败，请检查网络后重试')
+      } else {
+        alert('视频下载失败，请稍后重试')
+      }
     }
   }
 
@@ -491,16 +569,29 @@ export default function ScriptLibrary() {
               {script.characters && script.characters.length > 0 && (
                 <p className="text-sm text-gray-500 mb-2">角色: {script.characters.join(', ')}</p>
               )}
-              {script.video_link && (
-                <a
-                  href={script.video_link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-blue-500 hover:underline flex items-center gap-1 mb-2"
-                >
-                  <Video size={14} />
-                  查看原视频
-                </a>
+              {(script.video_link || script.video_url) && (
+                <div className="flex items-center gap-2 mb-2">
+                  {script.video_link && (
+                    <a
+                      href={script.video_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-500 hover:underline flex items-center gap-1"
+                    >
+                      <Video size={14} />
+                      查看原视频
+                    </a>
+                  )}
+                  {script.video_url && (
+                    <button
+                      onClick={() => handleDownloadVideo(script)}
+                      className="text-sm text-purple-500 hover:text-purple-700 flex items-center gap-1"
+                    >
+                      <Download size={14} />
+                      下载视频
+                    </button>
+                  )}
+                </div>
               )}
               <p className="text-xs text-gray-400">创建时间: {script.created_at ? new Date(script.created_at).toLocaleDateString() : '未知'}</p>
 
@@ -517,7 +608,7 @@ export default function ScriptLibrary() {
                   className="text-sm bg-green-200 hover:bg-green-300 px-3 py-1 rounded flex items-center gap-1"
                 >
                   <Download size={14} />
-                  下载
+                  下载脚本
                 </button>
                 {(libraryScope === 'mine' || script.isOwner) && (
                   <>
@@ -627,7 +718,7 @@ export default function ScriptLibrary() {
               </div>
               
               <div className="mb-4">
-                <label className="block text-sm font-medium mb-2">原视频链接</label>
+                <label className="block text-sm font-medium mb-2">参考视频链接</label>
                 <input
                   type="url"
                   value={uploadVideoLink}
@@ -635,6 +726,18 @@ export default function ScriptLibrary() {
                   className="w-full px-3 py-2 border rounded"
                   placeholder="https://..."
                 />
+                <p className="text-xs text-gray-500 mt-1">可选，填入视频链接</p>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2">参考视频文件</label>
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => setUploadVideoFile(e.target.files?.[0] || null)}
+                  className="w-full"
+                />
+                <p className="text-xs text-gray-500 mt-1">可选，上传MP4、MOV等视频文件</p>
               </div>
               
               <div className="flex justify-end space-x-2">
@@ -693,7 +796,7 @@ export default function ScriptLibrary() {
               </div>
               
               <div className="mb-4">
-                <label className="block text-sm font-medium mb-2">原视频链接</label>
+                <label className="block text-sm font-medium mb-2">参考视频链接</label>
                 <input
                   type="url"
                   value={editingScript.video_link || ''}
@@ -701,13 +804,28 @@ export default function ScriptLibrary() {
                   className="w-full px-3 py-2 border rounded"
                 />
               </div>
-              
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-2">更新参考视频文件</label>
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => setEditingVideoFile(e.target.files?.[0] || null)}
+                  className="w-full"
+                />
+                {editingScript.video_url && (
+                  <p className="text-xs text-gray-500 mt-1">当前已有视频文件</p>
+                )}
+                <p className="text-xs text-gray-500 mt-1">可选，上传新的视频文件</p>
+              </div>
+
               <div className="flex justify-end space-x-2">
                 <button
                   type="button"
                   onClick={() => {
                     setShowEditModal(false)
                     setEditingScript(null)
+                    setEditingVideoFile(null)  // 清理视频文件状态
                   }}
                   className="px-4 py-2 text-gray-600 hover:text-gray-800"
                   disabled={loading}

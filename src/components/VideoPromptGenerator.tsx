@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check } from 'lucide-react';
+import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages } from 'lucide-react';
 
 interface ImagePrompt {
   id: string;
@@ -8,7 +8,9 @@ interface ImagePrompt {
   preview: string;
   supplementPrompt: string;
   generatedPrompt: string;
+  translatedPrompt?: string;
   isProcessing: boolean;
+  isTranslating?: boolean;
   error?: string;
 }
 
@@ -109,10 +111,16 @@ const VideoPromptGenerator: React.FC = () => {
   const [images, setImages] = useState<ImagePrompt[]>([]);
   const [isProcessingAll, setIsProcessingAll] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Handle file selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
+    processFiles(files);
+  };
+
+  // Process files (used by both file input and drag-drop)
+  const processFiles = (files: File[]) => {
     const newImages: ImagePrompt[] = files.map(file => ({
       id: Math.random().toString(36).substr(2, 9),
       name: file.name,
@@ -123,6 +131,35 @@ const VideoPromptGenerator: React.FC = () => {
       isProcessing: false
     }));
     setImages(prev => [...prev, ...newImages]);
+  };
+
+  // Handle drag over
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  // Handle drag leave
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  // Handle drop
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files).filter(file =>
+      file.type.startsWith('image/')
+    );
+
+    if (files.length > 0) {
+      processFiles(files);
+    }
   };
 
   // Convert image to base64
@@ -168,31 +205,155 @@ const VideoPromptGenerator: React.FC = () => {
           temperature: 0.7,
           topP: 0.95,
           topK: 40,
-          maxOutputTokens: 1024,
+          maxOutputTokens: 8192,
+          candidateCount: 1
         }
       };
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY
           },
           body: JSON.stringify(requestBody)
         }
       );
 
       if (!response.ok) {
-        throw new Error(`API request failed: ${response.status}`);
+        const errorData = await response.json().catch(() => ({}));
+        console.error('API Error Response:', errorData);
+        throw new Error(`API request failed: ${response.status} - ${JSON.stringify(errorData)}`);
       }
 
       const data = await response.json();
+      console.log('API Response:', data);
       const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      console.log('Extracted text:', generatedText);
       return generatedText.trim();
     } catch (error) {
       console.error('Error generating prompt:', error);
       throw error;
+    }
+  };
+
+  // Helper function to get auth token
+  const getAuthToken = () => {
+    return localStorage.getItem('token') || '';
+  };
+
+  // Translate text to English
+  const translateToEnglish = async (text: string): Promise<string> => {
+    if (!text) {
+      return '';
+    }
+
+    try {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/translate', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text })
+      });
+
+      if (!response.ok) {
+        console.error('Translation failed:', response.status);
+        throw new Error('Translation failed');
+      }
+
+      const data = await response.json();
+      return data.translatedText || text;
+    } catch (error) {
+      console.error('Translation error:', error);
+      throw error;
+    }
+  };
+
+  // Translate single prompt
+  const handleTranslatePrompt = async (imageId: string) => {
+    const image = images.find(img => img.id === imageId);
+    if (!image || !image.generatedPrompt) return;
+
+    setImages(prev => prev.map(img =>
+      img.id === imageId ? { ...img, isTranslating: true } : img
+    ));
+
+    try {
+      const translatedText = await translateToEnglish(image.generatedPrompt);
+      setImages(prev => prev.map(img =>
+        img.id === imageId
+          ? { ...img, translatedPrompt: translatedText, isTranslating: false }
+          : img
+      ));
+    } catch (error) {
+      setImages(prev => prev.map(img =>
+        img.id === imageId
+          ? { ...img, isTranslating: false }
+          : img
+      ));
+      alert('翻译失败，请稍后重试');
+    }
+  };
+
+  // Batch translate all prompts
+  const handleBatchTranslate = async () => {
+    const imagesToTranslate = images.filter(img => img.generatedPrompt && !img.translatedPrompt);
+    if (imagesToTranslate.length === 0) {
+      alert('没有需要翻译的提示词');
+      return;
+    }
+
+    for (const image of imagesToTranslate) {
+      setImages(prev => prev.map(img =>
+        img.id === image.id ? { ...img, isTranslating: true } : img
+      ));
+
+      try {
+        const translatedText = await translateToEnglish(image.generatedPrompt);
+        setImages(prev => prev.map(img =>
+          img.id === image.id
+            ? { ...img, translatedPrompt: translatedText, isTranslating: false }
+            : img
+        ));
+      } catch (error) {
+        setImages(prev => prev.map(img =>
+          img.id === image.id
+            ? { ...img, isTranslating: false }
+            : img
+        ));
+      }
+
+      // Add delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  };
+
+  // Process single image (regenerate)
+  const handleRegeneratePrompt = async (imageId: string) => {
+    const image = images.find(img => img.id === imageId);
+    if (!image) return;
+
+    setImages(prev => prev.map(img =>
+      img.id === imageId ? { ...img, isProcessing: true, error: undefined } : img
+    ));
+
+    try {
+      const prompt = await generatePromptForImage(image);
+      setImages(prev => prev.map(img =>
+        img.id === imageId
+          ? { ...img, generatedPrompt: prompt, isProcessing: false }
+          : img
+      ));
+    } catch (error) {
+      setImages(prev => prev.map(img =>
+        img.id === imageId
+          ? { ...img, error: '生成失败', isProcessing: false }
+          : img
+      ));
     }
   };
 
@@ -255,10 +416,11 @@ const VideoPromptGenerator: React.FC = () => {
   };
 
   // Download all images with prompts as names
-  const handleDownloadAll = async () => {
+  const handleDownloadAll = async (useEnglish: boolean = false) => {
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
-      if (!image.generatedPrompt) continue;
+      const promptToUse = useEnglish ? image.translatedPrompt : image.generatedPrompt;
+      if (!promptToUse) continue;
 
       // Create a download link
       const response = await fetch(image.preview);
@@ -269,9 +431,11 @@ const VideoPromptGenerator: React.FC = () => {
       // Format filename: 001_prompt.ext
       const index = String(i + 1).padStart(3, '0');
       const extension = image.name.split('.').pop();
-      const cleanPrompt = image.generatedPrompt
-        .replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '_') // Keep Chinese, letters, numbers
-        .substring(0, 50); // Limit length
+      // 保留中文、英文、数字和标点符号（包括中文标点）
+      // 只替换会导致文件系统问题的字符：/ \ : * ? " < > |
+      const cleanPrompt = promptToUse
+        .replace(/[/\\:*?"<>|]/g, '_'); // 只替换文件系统不允许的字符
+      // 不限制长度，保留完整文本和标点符号
       a.href = url;
       a.download = `${index}_${cleanPrompt}.${extension}`;
 
@@ -305,18 +469,42 @@ const VideoPromptGenerator: React.FC = () => {
 
         {/* Upload Section */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <label className="flex items-center gap-3 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 cursor-pointer transition-colors">
-              <Upload className="w-5 h-5" />
-              <span>批量上传图片</span>
-              <input
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={handleFileSelect}
-                className="hidden"
-              />
-            </label>
+          <div
+            className={`border-2 border-dashed rounded-lg p-8 mb-4 transition-colors ${
+              isDragging
+                ? 'border-blue-500 bg-blue-50'
+                : 'border-gray-300 hover:border-gray-400'
+            }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <div className="text-center">
+              <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+              <p className="text-lg mb-2 text-gray-700">
+                拖拽图片到此处或点击上传
+              </p>
+              <p className="text-sm text-gray-500 mb-4">
+                支持批量上传多张图片
+              </p>
+              <label className="inline-flex items-center gap-3 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 cursor-pointer transition-colors">
+                <Upload className="w-5 h-5" />
+                <span>选择图片</span>
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-600">
+              {images.length > 0 && `已上传 ${images.length} 张图片`}
+            </div>
 
             {images.length > 0 && (
               <div className="flex gap-3">
@@ -343,7 +531,20 @@ const VideoPromptGenerator: React.FC = () => {
                 </button>
 
                 <button
-                  onClick={handleDownloadAll}
+                  onClick={handleBatchTranslate}
+                  disabled={images.filter(img => img.generatedPrompt && !img.translatedPrompt).length === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    images.filter(img => img.generatedPrompt && !img.translatedPrompt).length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-blue-500 text-white hover:bg-blue-600'
+                  }`}
+                >
+                  <Languages className="w-5 h-5" />
+                  批量翻译
+                </button>
+
+                <button
+                  onClick={() => handleDownloadAll(false)}
                   disabled={images.filter(img => img.generatedPrompt).length === 0}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                     images.filter(img => img.generatedPrompt).length === 0
@@ -352,7 +553,20 @@ const VideoPromptGenerator: React.FC = () => {
                   }`}
                 >
                   <Download className="w-5 h-5" />
-                  全部下载
+                  下载中文版
+                </button>
+
+                <button
+                  onClick={() => handleDownloadAll(true)}
+                  disabled={images.filter(img => img.translatedPrompt).length === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    images.filter(img => img.translatedPrompt).length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-indigo-500 text-white hover:bg-indigo-600'
+                  }`}
+                >
+                  <Download className="w-5 h-5" />
+                  下载英文版
                 </button>
               </div>
             )}
@@ -367,26 +581,13 @@ const VideoPromptGenerator: React.FC = () => {
         </div>
 
         {/* Image Cards */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-3">
           {images.map(image => (
-            <div key={image.id} className="bg-white rounded-lg shadow-sm p-6">
-              {/* Header with image name and remove button */}
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 truncate flex-1">
-                  {image.name}
-                </h3>
-                <button
-                  onClick={() => removeImage(image.id)}
-                  className="text-red-500 hover:text-red-700 ml-2"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Image preview and inputs */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Image preview */}
-                <div className="relative aspect-video bg-gray-100 rounded-lg overflow-hidden">
+            <div key={image.id} className="bg-white rounded-lg shadow-sm p-4">
+              {/* Compact layout - all in one row */}
+              <div className="flex gap-4">
+                {/* Image preview - fixed size */}
+                <div className="relative flex-shrink-0 w-[300px] h-[200px] bg-gray-100 rounded-lg overflow-hidden">
                   <img
                     src={image.preview}
                     alt={image.name}
@@ -399,56 +600,135 @@ const VideoPromptGenerator: React.FC = () => {
                   )}
                 </div>
 
-                {/* Inputs */}
-                <div className="space-y-3">
-                  {/* Supplement prompt */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      补充提示（可选）
-                    </label>
-                    <textarea
-                      value={image.supplementPrompt}
-                      onChange={(e) => updateSupplementPrompt(image.id, e.target.value)}
-                      placeholder="输入额外的描述或要求..."
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      rows={3}
-                    />
-                  </div>
-
-                  {/* Generated prompt */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-sm font-medium text-gray-700">
-                        生成的提示词
-                      </label>
+                {/* Content section - takes remaining space */}
+                <div className="flex-1 flex flex-col">
+                  {/* Header with name and action buttons */}
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-gray-900 truncate">
+                      {image.name}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleRegeneratePrompt(image.id)}
+                        disabled={image.isProcessing}
+                        className={`text-xs ${
+                          image.isProcessing
+                            ? 'text-gray-400 cursor-not-allowed'
+                            : 'text-green-600 hover:text-green-700'
+                        }`}
+                      >
+                        {image.isProcessing ? '生成中...' : (image.generatedPrompt ? '重新生成' : '生成')}
+                      </button>
                       {image.generatedPrompt && (
                         <button
-                          onClick={() => copyToClipboard(image.generatedPrompt, image.id)}
-                          className="flex items-center gap-1 text-sm text-blue-500 hover:text-blue-700"
+                          onClick={() => handleTranslatePrompt(image.id)}
+                          disabled={image.isTranslating}
+                          className={`text-xs ${
+                            image.isTranslating
+                              ? 'text-gray-400 cursor-not-allowed'
+                              : 'text-blue-600 hover:text-blue-700'
+                          }`}
                         >
-                          {copiedId === image.id ? (
-                            <>
-                              <Check className="w-4 h-4" />
-                              已复制
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-4 h-4" />
-                              复制
-                            </>
-                          )}
+                          {image.isTranslating ? '翻译中...' : '翻译'}
                         </button>
                       )}
+                      <button
+                        onClick={() => removeImage(image.id)}
+                        className="text-red-500 hover:text-red-700 text-sm ml-2"
+                      >
+                        ✕
+                      </button>
                     </div>
-                    <textarea
-                      value={image.generatedPrompt}
-                      onChange={(e) => updateGeneratedPrompt(image.id, e.target.value)}
-                      placeholder={image.error || "等待生成..."}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                        image.error ? 'border-red-300 text-red-500' : 'border-gray-300'
-                      }`}
-                      rows={4}
-                    />
+                  </div>
+
+                  {/* Three columns layout */}
+                  <div className="flex gap-2 flex-1">
+                    {/* Supplement prompt */}
+                    <div className="w-[200px]">
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        补充提示（可选）
+                      </label>
+                      <textarea
+                        value={image.supplementPrompt}
+                        onChange={(e) => updateSupplementPrompt(image.id, e.target.value)}
+                        placeholder="输入额外的描述或要求..."
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                        rows={5}
+                      />
+                    </div>
+
+                    {/* Generated prompt */}
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-medium text-gray-700">
+                          生成的提示词
+                        </label>
+                        {image.generatedPrompt && (
+                          <button
+                            onClick={() => copyToClipboard(image.generatedPrompt, image.id)}
+                            className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700"
+                          >
+                            {copiedId === image.id ? (
+                              <>
+                                <Check className="w-3 h-3" />
+                                已复制
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                复制
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      <textarea
+                        value={image.generatedPrompt}
+                        onChange={(e) => updateGeneratedPrompt(image.id, e.target.value)}
+                        placeholder={image.error || "等待生成..."}
+                        className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none ${
+                          image.error ? 'border-red-300 text-red-500' : 'border-gray-300'
+                        }`}
+                        rows={5}
+                      />
+                    </div>
+
+                    {/* English translation */}
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-medium text-gray-700">
+                          英文翻译
+                        </label>
+                        {image.translatedPrompt && (
+                          <button
+                            onClick={() => copyToClipboard(image.translatedPrompt!, `${image.id}-en`)}
+                            className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700"
+                          >
+                            {copiedId === `${image.id}-en` ? (
+                              <>
+                                <Check className="w-3 h-3" />
+                                已复制
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                复制
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      <textarea
+                        value={image.translatedPrompt || ''}
+                        onChange={(e) => setImages(prev => prev.map(img =>
+                          img.id === image.id ? { ...img, translatedPrompt: e.target.value } : img
+                        ))}
+                        placeholder={image.isTranslating ? "翻译中..." : "等待翻译..."}
+                        disabled={image.isTranslating}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                        rows={5}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
