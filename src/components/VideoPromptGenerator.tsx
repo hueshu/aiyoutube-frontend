@@ -468,9 +468,9 @@ const VideoPromptGenerator: React.FC = () => {
         </div>
 
         {/* Upload Section */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+        <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
           <div
-            className={`border-2 border-dashed rounded-lg p-8 mb-4 transition-colors ${
+            className={`border-2 border-dashed rounded-lg p-4 mb-3 transition-colors ${
               isDragging
                 ? 'border-blue-500 bg-blue-50'
                 : 'border-gray-300 hover:border-gray-400'
@@ -479,16 +479,18 @@ const VideoPromptGenerator: React.FC = () => {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
-            <div className="text-center">
-              <Upload className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-              <p className="text-lg mb-2 text-gray-700">
-                拖拽图片到此处或点击上传
-              </p>
-              <p className="text-sm text-gray-500 mb-4">
-                支持批量上传多张图片
-              </p>
-              <label className="inline-flex items-center gap-3 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 cursor-pointer transition-colors">
-                <Upload className="w-5 h-5" />
+            <div className="flex items-center justify-center gap-4">
+              <Upload className="w-8 h-8 text-gray-400" />
+              <div className="flex-1">
+                <p className="text-sm text-gray-700">
+                  拖拽图片到此处或点击上传
+                </p>
+                <p className="text-xs text-gray-500">
+                  支持批量上传多张图片
+                </p>
+              </div>
+              <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 cursor-pointer transition-colors">
+                <Upload className="w-4 h-4" />
                 <span>选择图片</span>
                 <input
                   type="file"
