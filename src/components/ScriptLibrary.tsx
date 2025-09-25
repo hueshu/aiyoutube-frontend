@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useStore } from '../store'
 import { useAuthStore } from '../store/authStore'
 import { API_URL } from '../config/api'
-import { Download, Edit2, Trash2, Eye, Upload, Plus, Video, Settings } from 'lucide-react'
+import { Download, Edit2, Trash2, Eye, Upload, Plus, Video, Settings, Save, FileUp, X } from 'lucide-react'
 
 interface Script {
   id: number
@@ -34,6 +34,9 @@ export default function ScriptLibrary() {
   const [editingScript, setEditingScript] = useState<Script | null>(null)
   const [editingVideoFile, setEditingVideoFile] = useState<File | null>(null)
   const [previewScript, setPreviewScript] = useState<Script | null>(null)
+  const [isEditingPreview, setIsEditingPreview] = useState(false)
+  const [editingPreviewContent, setEditingPreviewContent] = useState<any[]>([])
+  const [uploadPreviewFile, setUploadPreviewFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [newCategory, setNewCategory] = useState('')
@@ -289,6 +292,117 @@ export default function ScriptLibrary() {
     } catch (error) {
       console.error('Download failed:', error)
       alert('下载失败')
+    }
+  }
+
+  // Preview editing functions
+  const handleUpdateFrame = (index: number, field: 'sequence' | 'prompt', value: string) => {
+    const newContent = [...editingPreviewContent]
+    newContent[index] = { ...newContent[index], [field]: value }
+    setEditingPreviewContent(newContent)
+  }
+
+  const handleDeleteFrame = (index: number) => {
+    const newContent = editingPreviewContent.filter((_, i) => i !== index)
+    setEditingPreviewContent(newContent)
+  }
+
+  const handleAddFrame = () => {
+    const lastSequence = editingPreviewContent.length > 0
+      ? parseInt(editingPreviewContent[editingPreviewContent.length - 1].sequence) || editingPreviewContent.length
+      : 0
+    const newFrame = {
+      sequence: String(lastSequence + 1).padStart(3, '0'),
+      prompt: ''
+    }
+    setEditingPreviewContent([...editingPreviewContent, newFrame])
+  }
+
+  const handleSavePreviewEdit = async () => {
+    if (!previewScript) return
+
+    try {
+      setLoading(true)
+      const csvContent = editingPreviewContent
+        .map(frame => `${frame.sequence},"${frame.prompt.replace(/"/g, '""')}"`)
+        .join('\n')
+
+      const formData = new FormData()
+      formData.append('csv_content', csvContent)
+      formData.append('total_frames', String(editingPreviewContent.length))
+
+      const response = await fetch(`${API_URL}/scripts/${previewScript.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      })
+
+      if (response.ok) {
+        alert('保存成功')
+        setIsEditingPreview(false)
+        setEditingPreviewContent([])
+        // Refresh scripts
+        if (libraryScope === 'mine') {
+          fetchScripts()
+        } else {
+          fetchSystemScripts()
+        }
+        // Update preview script
+        const updatedScript = await response.json()
+        setPreviewScript(updatedScript)
+      } else {
+        alert('保存失败')
+      }
+    } catch (error) {
+      console.error('Error saving preview edit:', error)
+      alert('保存失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleUploadReplaceContent = async (file: File) => {
+    try {
+      const text = await file.text()
+      let frames: any[] = []
+
+      if (file.name.endsWith('.csv')) {
+        // Parse CSV
+        const lines = text.split('\n').filter(line => line.trim())
+        frames = lines.map((line, index) => {
+          const match = line.match(/^([^,]+),(.*)$/)
+          if (match) {
+            return {
+              sequence: match[1].replace(/^"|"$/g, ''),
+              prompt: match[2].replace(/^"|"$/g, '').replace(/""/g, '"')
+            }
+          }
+          return {
+            sequence: String(index + 1).padStart(3, '0'),
+            prompt: line
+          }
+        })
+      } else {
+        // Parse TXT (one frame per line)
+        const lines = text.split('\n').filter(line => line.trim())
+        frames = lines.map((line, index) => ({
+          sequence: String(index + 1).padStart(3, '0'),
+          prompt: line.trim()
+        }))
+      }
+
+      if (frames.length > 0) {
+        setEditingPreviewContent(frames)
+        setIsEditingPreview(true)
+        alert(`成功解析 ${frames.length} 个分镜，请检查并保存`)
+      } else {
+        alert('文件解析失败，请检查格式')
+      }
+    } catch (error) {
+      console.error('Error parsing file:', error)
+      alert('文件读取失败')
     }
   }
 
@@ -962,48 +1076,164 @@ export default function ScriptLibrary() {
         </div>
       )}
 
-      {/* Preview Modal */}
+      {/* Preview Modal - Enhanced */}
       {showPreviewModal && previewScript && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-[600px] max-h-[80vh] overflow-y-auto">
-            <h3 className="text-lg font-bold mb-4">{previewScript.name} - 预览</h3>
-            
-            <div className="mb-4">
-              <p className="text-sm text-gray-600">分类: {previewScript.category || '未分类'}</p>
-              <p className="text-sm text-gray-600">总帧数: {previewScript.total_frames}</p>
-              {previewScript.video_link && (
-                <a href={previewScript.video_link} target="_blank" className="text-sm text-blue-500 hover:underline">
-                  查看原视频
-                </a>
-              )}
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-[1200px] max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold">{previewScript.name} - 预览</h3>
+              <button
+                onClick={() => {
+                  setShowPreviewModal(false)
+                  setPreviewScript(null)
+                  setIsEditingPreview(false)
+                  setEditingPreviewContent([])
+                  setUploadPreviewFile(null)
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={24} />
+              </button>
             </div>
-            
-            <div className="border rounded p-4 max-h-[400px] overflow-y-auto">
+
+            {/* Meta Info */}
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-4 text-sm text-gray-600">
+                <span>分类: {previewScript.category || '未分类'}</span>
+                <span>总帧数: {previewScript.total_frames}</span>
+                {previewScript.video_link && (
+                  <a href={previewScript.video_link} target="_blank" className="text-blue-500 hover:underline flex items-center gap-1">
+                    <Video size={14} />
+                    查看原视频
+                  </a>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                {!isEditingPreview ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setIsEditingPreview(true)
+                        setEditingPreviewContent((previewScript as any).parsed_content || [])
+                      }}
+                      className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded flex items-center gap-1"
+                    >
+                      <Edit2 size={16} />
+                      编辑
+                    </button>
+                    <label className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm rounded flex items-center gap-1 cursor-pointer">
+                      <FileUp size={16} />
+                      上传替换
+                      <input
+                        type="file"
+                        accept=".csv,.txt"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            handleUploadReplaceContent(file)
+                          }
+                        }}
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={handleSavePreviewEdit}
+                      className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm rounded flex items-center gap-1"
+                    >
+                      <Save size={16} />
+                      保存
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsEditingPreview(false)
+                        setEditingPreviewContent([])
+                      }}
+                      className="px-3 py-1.5 bg-gray-500 hover:bg-gray-600 text-white text-sm rounded"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={handleAddFrame}
+                      className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded flex items-center gap-1"
+                    >
+                      <Plus size={16} />
+                      添加分镜
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Content Area */}
+            <div className="border rounded p-4 flex-1 overflow-y-auto" style={{ maxHeight: '60vh' }}>
               <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-white">
-                  <tr className="border-b">
-                    <th className="text-left p-2 w-16">序号</th>
+                <thead className="sticky top-0 bg-white border-b">
+                  <tr>
+                    <th className="text-left p-2 w-20">序号</th>
                     <th className="text-left p-2">分镜描述</th>
+                    {isEditingPreview && <th className="w-20">操作</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {(previewScript as any).parsed_content?.map((frame: any, index: number) => (
+                  {(isEditingPreview ? editingPreviewContent : (previewScript as any).parsed_content || []).map((frame: any, index: number) => (
                     <tr key={index} className="border-b hover:bg-gray-50">
-                      <td className="p-2 align-top font-mono text-center">{frame.sequence}</td>
-                      <td className="p-2">
-                        <div className="whitespace-pre-wrap break-words">{frame.prompt}</div>
+                      <td className="p-2 align-top font-mono text-center">
+                        {isEditingPreview ? (
+                          <input
+                            type="text"
+                            value={frame.sequence}
+                            onChange={(e) => handleUpdateFrame(index, 'sequence', e.target.value)}
+                            className="w-full px-2 py-1 border rounded text-center"
+                          />
+                        ) : (
+                          frame.sequence
+                        )}
                       </td>
+                      <td className="p-2">
+                        {isEditingPreview ? (
+                          <textarea
+                            value={frame.prompt}
+                            onChange={(e) => handleUpdateFrame(index, 'prompt', e.target.value)}
+                            className="w-full px-2 py-1 border rounded resize-none"
+                            rows={3}
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap break-words">{frame.prompt}</div>
+                        )}
+                      </td>
+                      {isEditingPreview && (
+                        <td className="p-2 text-center">
+                          <button
+                            onClick={() => handleDeleteFrame(index)}
+                            className="text-red-500 hover:text-red-700"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            
-            <div className="mt-4 flex justify-end">
+
+            {/* Footer */}
+            <div className="mt-4 flex justify-between items-center">
+              <div className="text-sm text-gray-500">
+                {isEditingPreview && `编辑模式 - ${editingPreviewContent.length} 个分镜`}
+              </div>
               <button
                 onClick={() => {
                   setShowPreviewModal(false)
                   setPreviewScript(null)
+                  setIsEditingPreview(false)
+                  setEditingPreviewContent([])
                 }}
                 className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded"
               >

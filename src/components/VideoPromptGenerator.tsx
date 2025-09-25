@@ -454,9 +454,17 @@ const VideoPromptGenerator: React.FC = () => {
       const extension = image.name.split('.').pop();
       // 保留中文、英文、数字和标点符号（包括中文标点）
       // 只替换会导致文件系统问题的字符：/ \ : * ? " < > |
-      const cleanPrompt = promptToUse
+      let cleanPrompt = promptToUse
         .replace(/[/\\:*?"<>|]/g, '_'); // 只替换文件系统不允许的字符
-      // 不限制长度，保留完整文本和标点符号
+
+      // 文件名长度限制：考虑到序号(3字符) + 下划线(1字符) + 扩展名(约4字符) = 8字符
+      // Windows文件名限制255字符，留一些余量，限制提示词部分为240字符
+      const maxPromptLength = 240;
+      if (cleanPrompt.length > maxPromptLength) {
+        // 如果超长，保留前面大部分内容，在末尾添加省略号
+        cleanPrompt = cleanPrompt.substring(0, maxPromptLength - 3) + '...';
+      }
+
       a.href = url;
       a.download = `${index}_${cleanPrompt}.${extension}`;
 
