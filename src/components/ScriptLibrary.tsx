@@ -22,7 +22,7 @@ interface Script {
 
 export default function ScriptLibrary() {
   const { scripts } = useStore()
-  const { user } = useAuthStore()
+  const { user, token } = useAuthStore()
   const [categories, setCategories] = useState<string[]>(['全部'])
   const [selectedCategory, setSelectedCategory] = useState('全部')
   const [libraryScope, setLibraryScope] = useState<'mine' | 'system'>('mine')
@@ -36,7 +36,6 @@ export default function ScriptLibrary() {
   const [previewScript, setPreviewScript] = useState<Script | null>(null)
   const [isEditingPreview, setIsEditingPreview] = useState(false)
   const [editingPreviewContent, setEditingPreviewContent] = useState<any[]>([])
-  const [uploadPreviewFile, setUploadPreviewFile] = useState<File | null>(null)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [newCategory, setNewCategory] = useState('')
@@ -344,11 +343,7 @@ export default function ScriptLibrary() {
         setIsEditingPreview(false)
         setEditingPreviewContent([])
         // Refresh scripts
-        if (libraryScope === 'mine') {
-          fetchScripts()
-        } else {
-          fetchSystemScripts()
-        }
+        fetchScriptsWithScope(libraryScope)
         // Update preview script
         const updatedScript = await response.json()
         setPreviewScript(updatedScript)
@@ -1089,7 +1084,6 @@ export default function ScriptLibrary() {
                   setPreviewScript(null)
                   setIsEditingPreview(false)
                   setEditingPreviewContent([])
-                  setUploadPreviewFile(null)
                 }}
                 className="text-gray-500 hover:text-gray-700"
               >
