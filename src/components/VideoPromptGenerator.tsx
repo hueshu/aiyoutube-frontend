@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages } from 'lucide-react';
+import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save } from 'lucide-react';
 
 interface ImagePrompt {
   id: string;
@@ -112,6 +112,7 @@ const VideoPromptGenerator: React.FC = () => {
   const [isProcessingAll, setIsProcessingAll] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [editingPrompts, setEditingPrompts] = useState<Set<string>>(new Set());
 
   // Handle file selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -415,6 +416,26 @@ const VideoPromptGenerator: React.FC = () => {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  // Toggle edit mode for a prompt
+  const toggleEditMode = (promptId: string) => {
+    setEditingPrompts(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(promptId)) {
+        newSet.delete(promptId);
+      } else {
+        newSet.add(promptId);
+      }
+      return newSet;
+    });
+  };
+
+  // Handle textarea click - copy if not in edit mode
+  const handleTextareaClick = (text: string, promptId: string) => {
+    if (!editingPrompts.has(promptId) && text) {
+      copyToClipboard(text, promptId);
+    }
+  };
+
   // Download all images with prompts as names
   const handleDownloadAll = async (useEnglish: boolean = false) => {
     for (let i = 0; i < images.length; i++) {
@@ -666,32 +687,55 @@ const VideoPromptGenerator: React.FC = () => {
                           生成的提示词
                         </label>
                         {image.generatedPrompt && (
-                          <button
-                            onClick={() => copyToClipboard(image.generatedPrompt, image.id)}
-                            className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700"
-                          >
-                            {copiedId === image.id ? (
-                              <>
-                                <Check className="w-3 h-3" />
-                                已复制
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3 h-3" />
-                                复制
-                              </>
-                            )}
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => copyToClipboard(image.generatedPrompt, image.id)}
+                              className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700"
+                            >
+                              {copiedId === image.id ? (
+                                <>
+                                  <Check className="w-3 h-3" />
+                                  已复制
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  复制
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => toggleEditMode(image.id)}
+                              className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700"
+                            >
+                              {editingPrompts.has(image.id) ? (
+                                <>
+                                  <Save className="w-3 h-3" />
+                                  完成
+                                </>
+                              ) : (
+                                <>
+                                  <Edit3 className="w-3 h-3" />
+                                  编辑
+                                </>
+                              )}
+                            </button>
+                          </div>
                         )}
                       </div>
                       <textarea
                         value={image.generatedPrompt}
                         onChange={(e) => updateGeneratedPrompt(image.id, e.target.value)}
+                        onClick={() => handleTextareaClick(image.generatedPrompt, image.id)}
+                        readOnly={!editingPrompts.has(image.id)}
                         placeholder={image.error || "等待生成..."}
                         className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none ${
-                          image.error ? 'border-red-300 text-red-500' : 'border-gray-300'
+                          image.error ? 'border-red-300 text-red-500' :
+                          editingPrompts.has(image.id) ? 'border-blue-400 bg-white' :
+                          'border-gray-300 bg-gray-50 cursor-pointer hover:bg-gray-100'
                         }`}
                         rows={5}
+                        title={!editingPrompts.has(image.id) ? "点击复制内容" : ""}
                       />
                     </div>
 
@@ -702,22 +746,40 @@ const VideoPromptGenerator: React.FC = () => {
                           英文翻译
                         </label>
                         {image.translatedPrompt && (
-                          <button
-                            onClick={() => copyToClipboard(image.translatedPrompt!, `${image.id}-en`)}
-                            className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700"
-                          >
-                            {copiedId === `${image.id}-en` ? (
-                              <>
-                                <Check className="w-3 h-3" />
-                                已复制
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="w-3 h-3" />
-                                复制
-                              </>
-                            )}
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => copyToClipboard(image.translatedPrompt!, `${image.id}-en`)}
+                              className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700"
+                            >
+                              {copiedId === `${image.id}-en` ? (
+                                <>
+                                  <Check className="w-3 h-3" />
+                                  已复制
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  复制
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => toggleEditMode(`${image.id}-en`)}
+                              className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700"
+                            >
+                              {editingPrompts.has(`${image.id}-en`) ? (
+                                <>
+                                  <Save className="w-3 h-3" />
+                                  完成
+                                </>
+                              ) : (
+                                <>
+                                  <Edit3 className="w-3 h-3" />
+                                  编辑
+                                </>
+                              )}
+                            </button>
+                          </div>
                         )}
                       </div>
                       <textarea
@@ -725,10 +787,17 @@ const VideoPromptGenerator: React.FC = () => {
                         onChange={(e) => setImages(prev => prev.map(img =>
                           img.id === image.id ? { ...img, translatedPrompt: e.target.value } : img
                         ))}
+                        onClick={() => handleTextareaClick(image.translatedPrompt || '', `${image.id}-en`)}
+                        readOnly={!editingPrompts.has(`${image.id}-en`)}
                         placeholder={image.isTranslating ? "翻译中..." : "等待翻译..."}
                         disabled={image.isTranslating}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                        className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none ${
+                          image.isTranslating ? 'border-gray-300 bg-gray-100' :
+                          editingPrompts.has(`${image.id}-en`) ? 'border-blue-400 bg-white' :
+                          'border-gray-300 bg-gray-50 cursor-pointer hover:bg-gray-100'
+                        }`}
                         rows={5}
+                        title={!editingPrompts.has(`${image.id}-en`) && !image.isTranslating ? "点击复制内容" : ""}
                       />
                     </div>
                   </div>
