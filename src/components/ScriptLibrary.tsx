@@ -383,100 +383,149 @@ export default function ScriptLibrary() {
   const handleUploadReplaceContent = async (file: File) => {
     try {
       const text = await file.text()
-      let frames: any[] = []
-
-      // Always parse as CSV (both .csv and .txt files)
+      const result: Array<{ sequence: string; prompt: string }> = []
       const lines = text.trim().split('\n')
 
+      if (lines.length === 0) {
+        alert('文件为空')
+        return
+      }
+
       // Check if first line is header and skip it
-      let startIndex = 0
+      let currentIndex = 0
       if (lines.length > 0) {
         const firstLine = lines[0].toLowerCase()
-        // Check for common headers or if first value is not a number
+        // Common header patterns in Chinese or English
         if (firstLine.includes('序号') ||
             firstLine.includes('分镜') ||
             firstLine.includes('scene') ||
             firstLine.includes('描述') ||
             firstLine.includes('prompt') ||
             firstLine.includes('内容') ||
+            // Check if first value is not a number
             (lines[0].split(',')[0] && isNaN(parseInt(lines[0].split(',')[0].trim())))) {
-          startIndex = 1
+          currentIndex = 1
           console.log('Detected header row, skipping first line')
         }
       }
 
-      // Parse CSV lines with proper quote handling
-      for (let i = startIndex; i < lines.length; i++) {
-        const line = lines[i].trim()
-        if (!line) continue
+      // Parse CSV line properly handling quotes (ported from backend logic)
+      const parseCSVLine = (startLine: string, startIndex: number): { sequence: number; prompt: string; nextIndex: number } | null => {
+        // Simple case: no quotes
+        if (!startLine.includes('"')) {
+          const [sequence, ...promptParts] = startLine.split(',')
+          const seqNum = parseInt(sequence.trim())
+          if (!isNaN(seqNum)) {
+            return {
+              sequence: seqNum,
+              prompt: promptParts.join(',').trim(),
+              nextIndex: startIndex + 1
+            }
+          }
+          // If sequence is not a number, try to use line number
+          if (promptParts.length > 0 || sequence.trim()) {
+            return {
+              sequence: startIndex - currentIndex + 1, // Calculate sequence based on position
+              prompt: startLine.trim(),
+              nextIndex: startIndex + 1
+            }
+          }
+          return null
+        }
 
-        // Handle simple CSV parsing with quote support
-        let sequence = ''
-        let prompt = ''
+        // Handle quoted content that may span multiple lines
+        const parts: string[] = []
+        let current = ''
+        let inQuotes = false
+        let lineIdx = startIndex
+        let currentLine = startLine
 
-        // Check if line has quotes
-        if (line.includes('"')) {
-          // Complex parsing for quoted content
-          const parts: string[] = []
-          let current = ''
-          let inQuotes = false
-
-          for (let j = 0; j < line.length; j++) {
-            const char = line[j]
-            const nextChar = line[j + 1]
+        while (lineIdx < lines.length) {
+          for (let i = 0; i < currentLine.length; i++) {
+            const char = currentLine[i]
+            const nextChar = currentLine[i + 1]
 
             if (char === '"' && nextChar === '"' && inQuotes) {
               current += '"'
-              j++ // Skip next quote
+              i++ // Skip next quote
             } else if (char === '"') {
               inQuotes = !inQuotes
             } else if (char === ',' && !inQuotes) {
-              parts.push(current)
+              parts.push(current.trim())
               current = ''
             } else {
               current += char
             }
           }
-          parts.push(current) // Add last part
 
-          sequence = parts[0]?.trim() || String(i).padStart(3, '0')
-          prompt = parts.slice(1).join(',').trim()
-        } else {
-          // Simple CSV parsing
-          const commaIndex = line.indexOf(',')
-          if (commaIndex > -1) {
-            sequence = line.substring(0, commaIndex).trim()
-            prompt = line.substring(commaIndex + 1).trim()
+          // If still in quotes, add newline and continue with next line
+          if (inQuotes && lineIdx + 1 < lines.length) {
+            current += '\n'
+            lineIdx++
+            currentLine = lines[lineIdx]
           } else {
-            // No comma, treat as prompt only
-            sequence = String(i - startIndex + 1).padStart(3, '0')
-            prompt = line
+            break
           }
         }
 
-        // Ensure sequence is properly formatted
-        const seqNum = parseInt(sequence)
-        if (!isNaN(seqNum)) {
-          sequence = String(seqNum).padStart(3, '0')
-        } else if (!sequence) {
-          sequence = String(frames.length + 1).padStart(3, '0')
+        // Add the last part
+        if (current) {
+          parts.push(current.trim())
         }
 
-        if (prompt) {
-          frames.push({ sequence, prompt })
+        // Extract sequence and prompt
+        if (parts.length >= 2) {
+          const seqNum = parseInt(parts[0])
+          if (!isNaN(seqNum)) {
+            return {
+              sequence: seqNum,
+              prompt: parts.slice(1).join(',').trim(),
+              nextIndex: lineIdx + 1
+            }
+          }
+        } else if (parts.length === 1 && parts[0]) {
+          // Single column, treat as prompt with auto sequence
+          return {
+            sequence: result.length + 1,
+            prompt: parts[0],
+            nextIndex: lineIdx + 1
+          }
+        }
+
+        return null
+      }
+
+      // Process lines with support for quoted multi-line content
+      while (currentIndex < lines.length) {
+        const line = lines[currentIndex].trim()
+        if (!line) {
+          currentIndex++
+          continue
+        }
+
+        const parsed = parseCSVLine(line, currentIndex)
+        if (parsed) {
+          // Format sequence as padded string for frontend display
+          result.push({
+            sequence: String(parsed.sequence).padStart(3, '0'),
+            prompt: parsed.prompt
+          })
+          currentIndex = parsed.nextIndex
+        } else {
+          currentIndex++
         }
       }
 
-      if (frames.length > 0) {
-        setEditingPreviewContent(frames)
+      if (result.length > 0) {
+        setEditingPreviewContent(result)
         setIsEditingPreview(true)
-        alert(`成功解析 ${frames.length} 个分镜，请检查并保存`)
+        alert(`成功解析 ${result.length} 个分镜，请检查并保存`)
       } else {
         alert('文件解析失败，请检查格式')
       }
     } catch (error) {
       console.error('Error parsing file:', error)
-      alert('文件读取失败')
+      alert('文件读取失败：' + (error instanceof Error ? error.message : '未知错误'))
     }
   }
 
