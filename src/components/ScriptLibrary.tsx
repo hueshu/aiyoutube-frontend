@@ -36,6 +36,7 @@ export default function ScriptLibrary() {
   const [previewScript, setPreviewScript] = useState<Script | null>(null)
   const [isEditingPreview, setIsEditingPreview] = useState(false)
   const [editingPreviewContent, setEditingPreviewContent] = useState<any[]>([])
+  const [isDraggingFile, setIsDraggingFile] = useState(false)
   const [loading, setLoading] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [newCategory, setNewCategory] = useState('')
@@ -329,30 +330,51 @@ export default function ScriptLibrary() {
       const formData = new FormData()
       formData.append('csv_content', csvContent)
       formData.append('total_frames', String(editingPreviewContent.length))
+      formData.append('name', previewScript.name) // Keep existing name
+      formData.append('category', previewScript.category || '未分类') // Keep existing category
+
+      console.log('Saving script with CSV content:', csvContent.substring(0, 100) + '...')
+      console.log('Total frames:', editingPreviewContent.length)
 
       const response = await fetch(`${API_URL}/scripts/${previewScript.id}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`
+          // Don't set Content-Type, let browser set it for FormData
         },
         body: formData
       })
 
       if (response.ok) {
+        const updatedScript = await response.json()
+        console.log('Save successful, updated script:', updatedScript)
+
         alert('保存成功')
         setIsEditingPreview(false)
         setEditingPreviewContent([])
-        // Refresh scripts
+
+        // Update preview script with parsed content
+        if (updatedScript && updatedScript.parsed_content) {
+          setPreviewScript(updatedScript)
+        } else {
+          // If response doesn't include parsed_content, add it
+          setPreviewScript({
+            ...updatedScript,
+            parsed_content: editingPreviewContent,
+            total_frames: editingPreviewContent.length
+          })
+        }
+
+        // Refresh scripts list
         fetchScriptsWithScope(libraryScope)
-        // Update preview script
-        const updatedScript = await response.json()
-        setPreviewScript(updatedScript)
       } else {
-        alert('保存失败')
+        const errorText = await response.text()
+        console.error('Save failed:', response.status, errorText)
+        alert(`保存失败: ${errorText || response.statusText}`)
       }
     } catch (error) {
       console.error('Error saving preview edit:', error)
-      alert('保存失败')
+      alert(`保存失败: ${error}`)
     } finally {
       setLoading(false)
     }
@@ -363,29 +385,86 @@ export default function ScriptLibrary() {
       const text = await file.text()
       let frames: any[] = []
 
-      if (file.name.endsWith('.csv')) {
-        // Parse CSV
-        const lines = text.split('\n').filter(line => line.trim())
-        frames = lines.map((line, index) => {
-          const match = line.match(/^([^,]+),(.*)$/)
-          if (match) {
-            return {
-              sequence: match[1].replace(/^"|"$/g, ''),
-              prompt: match[2].replace(/^"|"$/g, '').replace(/""/g, '"')
+      // Always parse as CSV (both .csv and .txt files)
+      const lines = text.trim().split('\n')
+
+      // Check if first line is header and skip it
+      let startIndex = 0
+      if (lines.length > 0) {
+        const firstLine = lines[0].toLowerCase()
+        // Check for common headers or if first value is not a number
+        if (firstLine.includes('序号') ||
+            firstLine.includes('分镜') ||
+            firstLine.includes('scene') ||
+            firstLine.includes('描述') ||
+            firstLine.includes('prompt') ||
+            firstLine.includes('内容') ||
+            (lines[0].split(',')[0] && isNaN(parseInt(lines[0].split(',')[0].trim())))) {
+          startIndex = 1
+          console.log('Detected header row, skipping first line')
+        }
+      }
+
+      // Parse CSV lines with proper quote handling
+      for (let i = startIndex; i < lines.length; i++) {
+        const line = lines[i].trim()
+        if (!line) continue
+
+        // Handle simple CSV parsing with quote support
+        let sequence = ''
+        let prompt = ''
+
+        // Check if line has quotes
+        if (line.includes('"')) {
+          // Complex parsing for quoted content
+          const parts: string[] = []
+          let current = ''
+          let inQuotes = false
+
+          for (let j = 0; j < line.length; j++) {
+            const char = line[j]
+            const nextChar = line[j + 1]
+
+            if (char === '"' && nextChar === '"' && inQuotes) {
+              current += '"'
+              j++ // Skip next quote
+            } else if (char === '"') {
+              inQuotes = !inQuotes
+            } else if (char === ',' && !inQuotes) {
+              parts.push(current)
+              current = ''
+            } else {
+              current += char
             }
           }
-          return {
-            sequence: String(index + 1).padStart(3, '0'),
-            prompt: line
+          parts.push(current) // Add last part
+
+          sequence = parts[0]?.trim() || String(i).padStart(3, '0')
+          prompt = parts.slice(1).join(',').trim()
+        } else {
+          // Simple CSV parsing
+          const commaIndex = line.indexOf(',')
+          if (commaIndex > -1) {
+            sequence = line.substring(0, commaIndex).trim()
+            prompt = line.substring(commaIndex + 1).trim()
+          } else {
+            // No comma, treat as prompt only
+            sequence = String(i - startIndex + 1).padStart(3, '0')
+            prompt = line
           }
-        })
-      } else {
-        // Parse TXT (one frame per line)
-        const lines = text.split('\n').filter(line => line.trim())
-        frames = lines.map((line, index) => ({
-          sequence: String(index + 1).padStart(3, '0'),
-          prompt: line.trim()
-        }))
+        }
+
+        // Ensure sequence is properly formatted
+        const seqNum = parseInt(sequence)
+        if (!isNaN(seqNum)) {
+          sequence = String(seqNum).padStart(3, '0')
+        } else if (!sequence) {
+          sequence = String(frames.length + 1).padStart(3, '0')
+        }
+
+        if (prompt) {
+          frames.push({ sequence, prompt })
+        }
       }
 
       if (frames.length > 0) {
@@ -1112,15 +1191,48 @@ export default function ScriptLibrary() {
                       onClick={() => {
                         setIsEditingPreview(true)
                         setEditingPreviewContent((previewScript as any).parsed_content || [])
+                        // Auto-resize textareas after switching to edit mode
+                        setTimeout(() => {
+                          const textareas = document.querySelectorAll('textarea')
+                          textareas.forEach((textarea: any) => {
+                            textarea.style.height = 'auto'
+                            textarea.style.height = textarea.scrollHeight + 'px'
+                          })
+                        }, 0)
                       }}
                       className="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded flex items-center gap-1"
                     >
                       <Edit2 size={16} />
                       编辑
                     </button>
-                    <label className="px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white text-sm rounded flex items-center gap-1 cursor-pointer">
+                    <label
+                      className={`px-6 py-2 bg-green-500 hover:bg-green-600 text-white text-sm rounded flex items-center gap-2 cursor-pointer transition-all ${
+                        isDraggingFile ? 'bg-green-600 ring-2 ring-green-300' : ''
+                      }`}
+                      onDragOver={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setIsDraggingFile(true)
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setIsDraggingFile(false)
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setIsDraggingFile(false)
+                        const file = e.dataTransfer.files[0]
+                        if (file && (file.name.endsWith('.csv') || file.name.endsWith('.txt'))) {
+                          handleUploadReplaceContent(file)
+                        } else {
+                          alert('请上传CSV或TXT文件')
+                        }
+                      }}
+                    >
                       <FileUp size={16} />
-                      上传替换
+                      {isDraggingFile ? '释放文件上传' : '上传替换 (可拖拽文件)'}
                       <input
                         type="file"
                         accept=".csv,.txt"
@@ -1194,8 +1306,13 @@ export default function ScriptLibrary() {
                           <textarea
                             value={frame.prompt}
                             onChange={(e) => handleUpdateFrame(index, 'prompt', e.target.value)}
-                            className="w-full px-2 py-1 border rounded resize-none"
-                            rows={3}
+                            className="w-full px-2 py-1 border rounded resize-none whitespace-pre-wrap"
+                            style={{ minHeight: '3em', height: 'auto' }}
+                            onInput={(e) => {
+                              const target = e.target as HTMLTextAreaElement
+                              target.style.height = 'auto'
+                              target.style.height = target.scrollHeight + 'px'
+                            }}
                           />
                         ) : (
                           <div className="whitespace-pre-wrap break-words">{frame.prompt}</div>
