@@ -61,7 +61,7 @@ const StoryboardWorkspace: React.FC = () => {
   const [scriptFrames, setScriptFrames] = useState<ScriptFrame[]>([]);
   const [characterMapping, setCharacterMapping] = useState<Record<string, number>>({});
   const [imageSize, setImageSize] = useState<string>('');
-  const [model, setModel] = useState<'sora_image' | 'gemini-2.5-flash-image-preview' | 'seedream-4.0'>('sora_image');
+  const [model, setModel] = useState<'sora_image' | 'gemini-2.5-flash-image-preview' | 'seedream-4.0' | 'doubao-seedream-4-0-250828'>('sora_image');
   const [loading, setLoading] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; currentFrame: number } | null>(null);
   const [editingRow, setEditingRow] = useState<number | null>(null);
@@ -504,10 +504,11 @@ const StoryboardWorkspace: React.FC = () => {
       const data = await response.json();
       console.log('Response data:', data);
       
-      // Check if it's a completed Gemini response (sync mode with image_url and status: 'completed')
+      // Check if it's a completed Gemini or Doubao response (sync mode with image_url and status: 'completed')
       if (response.status === 200 && data.image_url && data.status === 'completed') {
-        // Gemini sync mode success - directly use the image URL
-        console.log('Gemini generation completed immediately with image:', data.image_url);
+        // Gemini/Doubao sync mode success - directly use the image URL
+        const modelName = data.message?.includes('Doubao') ? 'Doubao' : 'Gemini';
+        console.log(`${modelName} generation completed immediately with image:`, data.image_url);
         setScriptFrames(prev => prev.map(f => {
           if (f.frame_number === frameNumber) {
             const existingImages = f.generated_images || [];
@@ -1463,6 +1464,7 @@ const StoryboardWorkspace: React.FC = () => {
               <option value="sora_image">Sora Image</option>
               <option value="gemini-2.5-flash-image-preview">Gemini 2.5 Flash</option>
               <option value="seedream-4.0">Seedream 4.0（支持多图编辑）</option>
+              <option value="doubao-seedream-4-0-250828">豆包融合模型（多图融合，需2张以上参考图）</option>
             </select>
           </div>
           
@@ -1497,6 +1499,13 @@ const StoryboardWorkspace: React.FC = () => {
       {selectedScriptId && scriptFrames.length > 0 && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4">角色映射</h3>
+          {model === 'doubao-seedream-4-0-250828' && (
+            <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3 mb-4">
+              <p className="text-sm text-yellow-800">
+                <span className="font-semibold">提示：</span>豆包融合模型需要至少2张参考图片来进行图片融合。请确保映射了足够的角色图片。
+              </p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
             {[...new Set(
               scriptFrames.flatMap(f =>
