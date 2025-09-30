@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown } from 'lucide-react';
+import { API_URL } from '../config/api';
 
 interface ImagePrompt {
   id: string;
@@ -107,17 +108,132 @@ const SYSTEM_PROMPT = `# 身份和使命
 4.  **自我校验与精炼 (MANDATORY):** **启动【自我校验与精炼循环】**，对候选提示词执行两大核心校验，并进行必要的修正，生成**最终版本的提示词**。
 5.  **最终审查与输出:** 检查最终版本的提示词是否完全符合【输出格式】要求，然后交付成果。`;
 
+interface Script {
+  id: number;
+  name: string;
+  category?: string;
+  total_frames?: number;
+  isOwner?: boolean;
+  owner_name?: string;
+}
+
+interface ParsedScriptContent {
+  sequence: number;
+  prompt: string;
+  dynamicDescription?: string;
+  narration?: string;
+}
+
 const VideoPromptGenerator: React.FC = () => {
   const [images, setImages] = useState<ImagePrompt[]>([]);
   const [isProcessingAll, setIsProcessingAll] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [editingPrompts, setEditingPrompts] = useState<Set<string>>(new Set());
+  const [scripts, setScripts] = useState<Script[]>([]);
+  const [selectedScriptId, setSelectedScriptId] = useState<string>('');
+  const [loadingScripts, setLoadingScripts] = useState(false);
+  const [scriptScope, setScriptScope] = useState<'mine' | 'system' | 'both'>('both');
+  const [showScriptSelector, setShowScriptSelector] = useState(false);
+
+  // Load scripts when component mounts or scope changes
+  useEffect(() => {
+    if (images.length > 0) {
+      loadScripts();
+    }
+  }, [scriptScope, images.length]);
+
+  // Load scripts from API
+  const loadScripts = async () => {
+    setLoadingScripts(true);
+    try {
+      const token = localStorage.getItem('token');
+      const requests = [];
+
+      if (scriptScope === 'mine' || scriptScope === 'both') {
+        requests.push(
+          fetch(`${API_URL}/scripts?scope=mine`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+        );
+      }
+
+      if (scriptScope === 'system' || scriptScope === 'both') {
+        requests.push(
+          fetch(`${API_URL}/scripts?scope=system`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+        );
+      }
+
+      const responses = await Promise.all(requests);
+      const allScripts: Script[] = [];
+
+      for (const response of responses) {
+        if (response.ok) {
+          const data = await response.json();
+          allScripts.push(...(data.scripts || []));
+        }
+      }
+
+      setScripts(allScripts);
+    } catch (error) {
+      console.error('Failed to load scripts:', error);
+    } finally {
+      setLoadingScripts(false);
+    }
+  };
+
+  // Import script data to supplement prompts
+  const importScriptData = async () => {
+    if (!selectedScriptId) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/scripts/${selectedScriptId}/parsed`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load script data');
+      }
+
+      const data = await response.json();
+      const parsedContent: ParsedScriptContent[] = data.parsed_content || [];
+
+      // Update images with dynamic descriptions from script
+      setImages(prev => prev.map((img, index) => {
+        const scriptFrame = parsedContent[index];
+        if (scriptFrame && scriptFrame.dynamicDescription) {
+          // 同时导入到"补充提示"和"生成的提示词"两个文本框
+          return {
+            ...img,
+            supplementPrompt: scriptFrame.dynamicDescription,
+            generatedPrompt: scriptFrame.dynamicDescription
+          };
+        }
+        return img;
+      }));
+
+      // Close selector after import
+      setShowScriptSelector(false);
+      setSelectedScriptId('');
+
+      alert(`已导入脚本「${scripts.find(s => s.id === parseInt(selectedScriptId))?.name}」的动态过程描述`);
+    } catch (error) {
+      console.error('Failed to import script data:', error);
+      alert('导入脚本数据失败');
+    }
+  };
 
   // Handle file selection
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     processFiles(files);
+    // Show script selector after adding images
+    if (files.length > 0) {
+      setShowScriptSelector(true);
+    }
   };
 
   // Process files (used by both file input and drag-drop)
@@ -132,6 +248,10 @@ const VideoPromptGenerator: React.FC = () => {
       isProcessing: false
     }));
     setImages(prev => [...prev, ...newImages]);
+    // Show script selector after adding images
+    if (files.length > 0) {
+      setShowScriptSelector(true);
+    }
   };
 
   // Handle drag over
@@ -610,6 +730,98 @@ const VideoPromptGenerator: React.FC = () => {
             </p>
           )}
         </div>
+
+        {/* Script Selector */}
+        {images.length > 0 && showScriptSelector && (
+          <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <BookOpen className="w-4 h-4" />
+                导入脚本数据
+              </h3>
+              <button
+                onClick={() => setShowScriptSelector(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex gap-3">
+              {/* Scope selector */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setScriptScope('mine')}
+                  className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
+                    scriptScope === 'mine'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  我的脚本
+                </button>
+                <button
+                  onClick={() => setScriptScope('system')}
+                  className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
+                    scriptScope === 'system'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  系统库
+                </button>
+                <button
+                  onClick={() => setScriptScope('both')}
+                  className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
+                    scriptScope === 'both'
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  全部
+                </button>
+              </div>
+
+              {/* Script dropdown */}
+              <div className="flex-1 relative">
+                <select
+                  value={selectedScriptId}
+                  onChange={(e) => setSelectedScriptId(e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 appearance-none pr-8"
+                  disabled={loadingScripts}
+                >
+                  <option value="">选择脚本...</option>
+                  {scripts.map(script => (
+                    <option key={script.id} value={script.id}>
+                      {script.name}
+                      {script.category && ` [${script.category}]`}
+                      {!script.isOwner && script.owner_name && ` (${script.owner_name})`}
+                      {script.total_frames && ` - ${script.total_frames}帧`}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
+
+              {/* Import button */}
+              <button
+                onClick={importScriptData}
+                disabled={!selectedScriptId || loadingScripts}
+                className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
+                  selectedScriptId && !loadingScripts
+                    ? 'bg-green-500 text-white hover:bg-green-600'
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                导入
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500 mt-2">
+              选择脚本后，将导入第三列「动态过程描述」到各图片的补充提示中
+            </p>
+          </div>
+        )}
 
         {/* Image Cards */}
         <div className="grid grid-cols-1 gap-3">
