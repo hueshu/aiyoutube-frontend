@@ -269,7 +269,16 @@ const VideoPromptGenerator: React.FC = () => {
 
   // Process files (used by both file input and drag-drop)
   const processFiles = (files: File[]) => {
-    const newImages: ImagePrompt[] = files.map(file => ({
+    // 先对文件按名称排序（从小到大）
+    const sortedFiles = [...files].sort((a, b) => {
+      // 使用自然排序，正确处理数字
+      return a.name.localeCompare(b.name, undefined, {
+        numeric: true,
+        sensitivity: 'base'
+      });
+    });
+
+    const newImages: ImagePrompt[] = sortedFiles.map(file => ({
       id: Math.random().toString(36).substr(2, 9),
       name: file.name,
       file: file,
