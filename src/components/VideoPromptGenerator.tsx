@@ -205,9 +205,9 @@ const VideoPromptGenerator: React.FC = () => {
       const parsedContent: ParsedScriptContent[] = data.parsed_content || [];
 
       // Update images with dynamic descriptions from script
-      const updatedImages = parsedContent.map((scriptFrame, index) => {
-        const img = images[index];
-        if (img && scriptFrame && scriptFrame.dynamicDescription) {
+      setImages(prev => prev.map((img, index) => {
+        const scriptFrame = parsedContent[index];
+        if (scriptFrame && scriptFrame.dynamicDescription) {
           // 同时导入到"补充提示"和"生成的提示词"两个文本框
           return {
             ...img,
@@ -216,9 +216,7 @@ const VideoPromptGenerator: React.FC = () => {
           };
         }
         return img;
-      }).filter(Boolean);
-
-      setImages(updatedImages);
+      }));
 
       // 检测角色名称（角色A、角色B、角色C等）
       const characters = new Set<string>();
