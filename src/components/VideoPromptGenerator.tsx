@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown } from 'lucide-react';
+import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown, Users, RefreshCw } from 'lucide-react';
 import { API_URL } from '../config/api';
 
 interface ImagePrompt {
@@ -135,6 +135,9 @@ const VideoPromptGenerator: React.FC = () => {
   const [loadingScripts, setLoadingScripts] = useState(false);
   const [scriptScope, setScriptScope] = useState<'mine' | 'system' | 'both'>('both');
   const [showScriptSelector, setShowScriptSelector] = useState(false);
+  const [characterReplacements, setCharacterReplacements] = useState<{ [key: string]: string }>({});
+  const [showCharacterReplacer, setShowCharacterReplacer] = useState(false);
+  const [detectedCharacters, setDetectedCharacters] = useState<string[]>([]);
 
   // Load scripts when component mounts or scope changes
   useEffect(() => {
@@ -202,9 +205,9 @@ const VideoPromptGenerator: React.FC = () => {
       const parsedContent: ParsedScriptContent[] = data.parsed_content || [];
 
       // Update images with dynamic descriptions from script
-      setImages(prev => prev.map((img, index) => {
-        const scriptFrame = parsedContent[index];
-        if (scriptFrame && scriptFrame.dynamicDescription) {
+      const updatedImages = parsedContent.map((scriptFrame, index) => {
+        const img = images[index];
+        if (img && scriptFrame && scriptFrame.dynamicDescription) {
           // 同时导入到"补充提示"和"生成的提示词"两个文本框
           return {
             ...img,
@@ -213,7 +216,33 @@ const VideoPromptGenerator: React.FC = () => {
           };
         }
         return img;
-      }));
+      }).filter(Boolean);
+
+      setImages(updatedImages);
+
+      // 检测角色名称（角色A、角色B、角色C等）
+      const characters = new Set<string>();
+      parsedContent.forEach(frame => {
+        if (frame.dynamicDescription) {
+          // 匹配角色A、角色B、角色C等模式
+          const matches = frame.dynamicDescription.match(/角色[A-Z]/g);
+          if (matches) {
+            matches.forEach(match => characters.add(match));
+          }
+        }
+      });
+
+      if (characters.size > 0) {
+        const sortedCharacters = Array.from(characters).sort();
+        setDetectedCharacters(sortedCharacters);
+        // 初始化替换映射
+        const initialReplacements: { [key: string]: string } = {};
+        sortedCharacters.forEach(char => {
+          initialReplacements[char] = '';
+        });
+        setCharacterReplacements(initialReplacements);
+        setShowCharacterReplacer(true);
+      }
 
       // Close selector after import
       setShowScriptSelector(false);
@@ -603,6 +632,41 @@ const VideoPromptGenerator: React.FC = () => {
     setImages(prev => prev.filter(img => img.id !== id));
   };
 
+  // Batch replace characters in all prompts
+  const handleBatchReplaceCharacters = () => {
+    // 检查是否所有角色都有替换值
+    const hasEmptyValues = Object.values(characterReplacements).some(value => !value.trim());
+    if (hasEmptyValues) {
+      alert('请为所有角色设置替换名称');
+      return;
+    }
+
+    // 批量替换所有图片的提示词
+    setImages(prev => prev.map(img => {
+      let updatedSupplementPrompt = img.supplementPrompt;
+      let updatedGeneratedPrompt = img.generatedPrompt;
+
+      // 替换每个角色
+      Object.entries(characterReplacements).forEach(([oldChar, newChar]) => {
+        if (newChar.trim()) {
+          const regex = new RegExp(oldChar, 'g');
+          updatedSupplementPrompt = updatedSupplementPrompt.replace(regex, newChar);
+          updatedGeneratedPrompt = updatedGeneratedPrompt.replace(regex, newChar);
+        }
+      });
+
+      return {
+        ...img,
+        supplementPrompt: updatedSupplementPrompt,
+        generatedPrompt: updatedGeneratedPrompt
+      };
+    }));
+
+    // 关闭替换面板
+    setShowCharacterReplacer(false);
+    alert('角色替换完成！');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
@@ -819,6 +883,69 @@ const VideoPromptGenerator: React.FC = () => {
 
             <p className="text-xs text-gray-500 mt-2">
               选择脚本后，将导入第三列「动态过程描述」到各图片的补充提示中
+            </p>
+          </div>
+        )}
+
+        {/* Character Replacer */}
+        {showCharacterReplacer && detectedCharacters.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                批量替换角色名称
+              </h3>
+              <button
+                onClick={() => setShowCharacterReplacer(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-2 mb-3">
+              {detectedCharacters.map(character => (
+                <div key={character} className="flex items-center gap-3">
+                  <span className="text-sm text-gray-700 w-20">{character}：</span>
+                  <input
+                    type="text"
+                    value={characterReplacements[character] || ''}
+                    onChange={(e) => setCharacterReplacements(prev => ({
+                      ...prev,
+                      [character]: e.target.value
+                    }))}
+                    placeholder={`输入${character}的真实名称（如：男人、女孩）`}
+                    className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  // 清空所有输入
+                  const cleared: { [key: string]: string } = {};
+                  detectedCharacters.forEach(char => {
+                    cleared[char] = '';
+                  });
+                  setCharacterReplacements(cleared);
+                }}
+                className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800"
+              >
+                清空
+              </button>
+              <button
+                onClick={handleBatchReplaceCharacters}
+                className="flex items-center gap-2 px-4 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                批量替换
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-500 mt-2">
+              将所有提示词中的角色占位符替换为真实名称
             </p>
           </div>
         )}
