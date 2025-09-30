@@ -138,6 +138,7 @@ const VideoPromptGenerator: React.FC = () => {
   const [characterReplacements, setCharacterReplacements] = useState<{ [key: string]: string }>({});
   const [showCharacterReplacer, setShowCharacterReplacer] = useState(false);
   const [detectedCharacters, setDetectedCharacters] = useState<string[]>([]);
+  const [hasImportedFromScript, setHasImportedFromScript] = useState(false);
 
   // Load scripts when component mounts or scope changes
   useEffect(() => {
@@ -218,6 +219,9 @@ const VideoPromptGenerator: React.FC = () => {
         return img;
       }));
 
+      // 标记已从脚本导入
+      setHasImportedFromScript(true);
+
       // 检测角色名称（角色A、角色B、角色C等）
       const characters = new Set<string>();
       parsedContent.forEach(frame => {
@@ -278,6 +282,8 @@ const VideoPromptGenerator: React.FC = () => {
     // Show script selector after adding images
     if (files.length > 0) {
       setShowScriptSelector(true);
+      // 重置导入标记
+      setHasImportedFromScript(false);
     }
   };
 
@@ -512,7 +518,9 @@ const VideoPromptGenerator: React.FC = () => {
     // Process images one by one to avoid rate limits
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
-      if (image.generatedPrompt) continue; // Skip already processed
+      // 如果没有从脚本导入，并且已有生成内容，则跳过
+      // 如果从脚本导入了，则强制重新生成（使用补充提示）
+      if (!hasImportedFromScript && image.generatedPrompt) continue;
 
       setImages(prev => prev.map(img =>
         img.id === image.id ? { ...img, isProcessing: true } : img
@@ -540,6 +548,10 @@ const VideoPromptGenerator: React.FC = () => {
     }
 
     setIsProcessingAll(false);
+    // 处理完成后重置标记
+    if (hasImportedFromScript) {
+      setHasImportedFromScript(false);
+    }
   };
 
   // Update supplement prompt
@@ -662,6 +674,8 @@ const VideoPromptGenerator: React.FC = () => {
 
     // 关闭替换面板
     setShowCharacterReplacer(false);
+    // 标记内容已修改，需要重新生成
+    setHasImportedFromScript(true);
     alert('角色替换完成！');
   };
 
@@ -738,7 +752,7 @@ const VideoPromptGenerator: React.FC = () => {
                   ) : (
                     <>
                       <FileText className="w-5 h-5" />
-                      一键生成 Prompt
+                      {hasImportedFromScript ? '使用AI优化提示词' : '一键生成 Prompt'}
                     </>
                   )}
                 </button>
