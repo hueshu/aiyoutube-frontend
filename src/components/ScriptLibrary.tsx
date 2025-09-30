@@ -43,9 +43,11 @@ export default function ScriptLibrary() {
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false)
   const [editingCategory, setEditingCategory] = useState<string | null>(null)
   const [editingCategoryName, setEditingCategoryName] = useState('')
-  
+
   // Form states for upload
+  const [uploadMode, setUploadMode] = useState<'file' | 'text'>('file')
   const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadCsvText, setUploadCsvText] = useState('')
   const [uploadName, setUploadName] = useState('')
   const [uploadCategory, setUploadCategory] = useState('')
   const [uploadVideoLink, setUploadVideoLink] = useState('')
@@ -132,40 +134,94 @@ export default function ScriptLibrary() {
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!uploadFile) return
-    
+
+    // 根据模式验证
+    if (uploadMode === 'file' && !uploadFile) {
+      alert('请选择CSV文件')
+      return
+    }
+    if (uploadMode === 'text' && !uploadCsvText.trim()) {
+      alert('请粘贴CSV内容')
+      return
+    }
+    if (!uploadName.trim()) {
+      alert('请输入脚本名称')
+      return
+    }
+
     console.log('Starting upload...')
-    console.log('User token:', localStorage.getItem('token'))
-    console.log('File:', uploadFile)
+    console.log('Upload mode:', uploadMode)
     console.log('Name:', uploadName)
     console.log('Category:', uploadCategory || '未分类')
-    
+
     setLoading(true)
-    const formData = new FormData()
-    formData.append('file', uploadFile)
-    formData.append('name', uploadName)
-    formData.append('category', uploadCategory || '未分类')
-    if (uploadVideoLink) {
-      formData.append('video_link', uploadVideoLink)
-    }
-    if (uploadVideoFile) {
-      formData.append('video_file', uploadVideoFile)
-    }
-    
+
     try {
-      console.log('Sending request to:', `${API_URL}/scripts`)
-      const response = await fetch(`${API_URL}/scripts`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData
-      })
-      
+      let response
+
+      if (uploadMode === 'file') {
+        // 文件上传模式
+        const formData = new FormData()
+        formData.append('file', uploadFile!)
+        formData.append('name', uploadName)
+        formData.append('category', uploadCategory || '未分类')
+        if (uploadVideoLink) {
+          formData.append('video_link', uploadVideoLink)
+        }
+        if (uploadVideoFile) {
+          formData.append('video_file', uploadVideoFile)
+        }
+
+        response = await fetch(`${API_URL}/scripts`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: formData
+        })
+      } else {
+        // 文本粘贴模式
+        const requestBody = {
+          csv_content: uploadCsvText,
+          name: uploadName,
+          category: uploadCategory || '未分类',
+          video_link: uploadVideoLink || null
+        }
+
+        // 如果有视频文件，需要使用FormData
+        if (uploadVideoFile) {
+          const formData = new FormData()
+          formData.append('csv_content', uploadCsvText)
+          formData.append('name', uploadName)
+          formData.append('category', uploadCategory || '未分类')
+          if (uploadVideoLink) {
+            formData.append('video_link', uploadVideoLink)
+          }
+          formData.append('video_file', uploadVideoFile)
+
+          response = await fetch(`${API_URL}/scripts`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: formData
+          })
+        } else {
+          response = await fetch(`${API_URL}/scripts`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+          })
+        }
+      }
+
       console.log('Response status:', response.status)
       const responseData = await response.json()
       console.log('Response data:', responseData)
-      
+
       if (response.ok) {
         setShowUploadModal(false)
         resetUploadForm()
@@ -184,7 +240,9 @@ export default function ScriptLibrary() {
   }
 
   const resetUploadForm = () => {
+    setUploadMode('file')
     setUploadFile(null)
+    setUploadCsvText('')
     setUploadName('')
     setUploadCategory('')
     setUploadVideoLink('')
@@ -874,21 +932,63 @@ export default function ScriptLibrary() {
       {/* Upload Modal */}
       {showUploadModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg p-6 w-[500px] max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-4">上传脚本</h3>
+
+            {/* 标签页切换 */}
+            <div className="flex mb-4 border-b">
+              <button
+                type="button"
+                onClick={() => setUploadMode('file')}
+                className={`px-4 py-2 font-medium ${
+                  uploadMode === 'file'
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                上传文件
+              </button>
+              <button
+                type="button"
+                onClick={() => setUploadMode('text')}
+                className={`px-4 py-2 font-medium ${
+                  uploadMode === 'text'
+                    ? 'text-blue-600 border-b-2 border-blue-600'
+                    : 'text-gray-600 hover:text-gray-800'
+                }`}
+              >
+                粘贴文本
+              </button>
+            </div>
+
             <form onSubmit={handleUpload}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-2">脚本文件 (CSV格式) *</label>
-                <input
-                  type="file"
-                  accept=".csv,text/csv,text/plain,application/vnd.ms-excel"
-                  onChange={handleFileSelect}
-                  required
-                  className="w-full"
-                />
-                <p className="text-xs text-gray-500 mt-1">支持CSV格式文件，包括无扩展名的文本文件</p>
-              </div>
-              
+              {/* 根据模式显示不同的输入区域 */}
+              {uploadMode === 'file' ? (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">脚本文件 (CSV格式) *</label>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv,text/plain,application/vnd.ms-excel"
+                    onChange={handleFileSelect}
+                    required
+                    className="w-full"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">支持CSV格式文件，包括无扩展名的文本文件</p>
+                </div>
+              ) : (
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-2">CSV内容 *</label>
+                  <textarea
+                    value={uploadCsvText}
+                    onChange={(e) => setUploadCsvText(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 border rounded h-48 font-mono text-sm"
+                    placeholder="粘贴CSV内容，格式示例：&#10;1,&quot;第一个镜头描述&quot;,&quot;动态描述&quot;,&quot;旁白&quot;&#10;2,&quot;第二个镜头描述&quot;,&quot;动态描述&quot;,&quot;对话&quot;"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">直接从Excel或CSV文件中复制内容粘贴到这里</p>
+                </div>
+              )}
+
               <div className="mb-4">
                 <label className="block text-sm font-medium mb-2">脚本名称 *</label>
                 <input
