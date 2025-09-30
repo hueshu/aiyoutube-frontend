@@ -14,6 +14,8 @@ interface User {
   usage_count: number;
   has_api_key?: boolean;
   require_own_key?: boolean;
+  has_doubao_key?: boolean;
+  require_doubao_key?: boolean;
   stats?: {
     scripts: number;
     characters: number;
@@ -265,9 +267,9 @@ const AdminPanel: React.FC = () => {
     }
   };
 
-  const toggleRequireOwnKey = async (userId: number, requireOwnKey: boolean) => {
+  const toggleRequireOwnKey = async (userId: number, provider: 'yunwu' | 'doubao', requireOwnKey: boolean) => {
     try {
-      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/settings/admin/user/${userId}/require-key`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/settings/admin/user/${userId}/require-key/${provider}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -277,7 +279,7 @@ const AdminPanel: React.FC = () => {
       });
 
       if (response.ok) {
-        showToast(`已${requireOwnKey ? '开启' : '关闭'}用户的API Key要求`, 'success');
+        showToast(`已${requireOwnKey ? '开启' : '关闭'}用户的${provider === 'yunwu' ? '云雾' : '豆包'}API Key要求`, 'success');
         fetchUsers();
       } else {
         const error = await response.json();
@@ -428,7 +430,7 @@ const AdminPanel: React.FC = () => {
                     <th className="text-left p-2">用户名</th>
                     <th className="text-left p-2">角色</th>
                     <th className="text-left p-2">状态</th>
-                    <th className="text-left p-2">API Key</th>
+                    <th className="text-left p-2">API Keys</th>
                     <th className="text-left p-2">使用量</th>
                     <th className="text-left p-2">脚本</th>
                     <th className="text-left p-2">角色数</th>
@@ -461,29 +463,60 @@ const AdminPanel: React.FC = () => {
                         </span>
                       </td>
                       <td className="p-2">
-                        <div className="flex items-center gap-2">
-                          {user.require_own_key ? (
-                            user.has_api_key ? (
-                              <span className="flex items-center gap-1 text-green-600">
-                                <Key className="w-3 h-3" />
-                                <span className="text-xs">已配置</span>
-                              </span>
+                        <div className="flex flex-col gap-2">
+                          {/* 云雾 API Key */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 w-10">云雾:</span>
+                            {user.require_own_key ? (
+                              user.has_api_key ? (
+                                <span className="flex items-center gap-1 text-green-600">
+                                  <Key className="w-3 h-3" />
+                                  <span className="text-xs">已配置</span>
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-red-600">
+                                  <Key className="w-3 h-3" />
+                                  <span className="text-xs">需配置</span>
+                                </span>
+                              )
                             ) : (
-                              <span className="flex items-center gap-1 text-red-600">
-                                <Key className="w-3 h-3" />
-                                <span className="text-xs">需配置</span>
-                              </span>
-                            )
-                          ) : (
-                            <span className="text-xs text-gray-500">使用系统</span>
-                          )}
-                          <button
-                            onClick={() => toggleRequireOwnKey(user.id, !user.require_own_key)}
-                            className="text-blue-500 hover:text-blue-700"
-                            title={user.require_own_key ? '切换为使用系统API Key' : '切换为需要自己的API Key'}
-                          >
-                            <RefreshCw className="w-3 h-3" />
-                          </button>
+                              <span className="text-xs text-gray-500">系统</span>
+                            )}
+                            <button
+                              onClick={() => toggleRequireOwnKey(user.id, 'yunwu', !user.require_own_key)}
+                              className="text-blue-500 hover:text-blue-700"
+                              title={user.require_own_key ? '切换为使用系统云雾API Key' : '切换为需要自己的云雾API Key'}
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          {/* 豆包 API Key */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-600 w-10">豆包:</span>
+                            {user.require_doubao_key ? (
+                              user.has_doubao_key ? (
+                                <span className="flex items-center gap-1 text-green-600">
+                                  <Key className="w-3 h-3" />
+                                  <span className="text-xs">已配置</span>
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-red-600">
+                                  <Key className="w-3 h-3" />
+                                  <span className="text-xs">需配置</span>
+                                </span>
+                              )
+                            ) : (
+                              <span className="text-xs text-gray-500">系统</span>
+                            )}
+                            <button
+                              onClick={() => toggleRequireOwnKey(user.id, 'doubao', !user.require_doubao_key)}
+                              className="text-blue-500 hover:text-blue-700"
+                              title={user.require_doubao_key ? '切换为使用系统豆包API Key' : '切换为需要自己的豆包API Key'}
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                            </button>
+                          </div>
                         </div>
                       </td>
                       <td className="p-2">{user.usage_count}/{user.usage_limit}</td>
