@@ -1464,7 +1464,7 @@ const StoryboardWorkspace: React.FC = () => {
               <option value="sora_image">Sora Image</option>
               <option value="gemini-2.5-flash-image-preview">Gemini 2.5 Flash</option>
               <option value="seedream-4.0">Seedream 4.0（支持多图编辑）</option>
-              <option value="doubao-seedream-4-0-250828">豆包融合模型（多图融合，需2张以上参考图）</option>
+              <option value="doubao-seedream-4-0-250828">doubao-seedream-4-0</option>
             </select>
           </div>
           
@@ -1499,13 +1499,6 @@ const StoryboardWorkspace: React.FC = () => {
       {selectedScriptId && scriptFrames.length > 0 && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4">角色映射</h3>
-          {model === 'doubao-seedream-4-0-250828' && (
-            <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3 mb-4">
-              <p className="text-sm text-yellow-800">
-                <span className="font-semibold">提示：</span>豆包融合模型需要至少2张参考图片来进行图片融合。请确保映射了足够的角色图片。
-              </p>
-            </div>
-          )}
           <div className="flex flex-wrap gap-2">
             {[...new Set(
               scriptFrames.flatMap(f =>
