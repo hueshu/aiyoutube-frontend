@@ -370,12 +370,19 @@ const StoryboardWorkspace: React.FC = () => {
     // Add character name instruction on a new line
     processedPrompt += '\n角色的参考图就是图片文件名与角色名称一样的图片';
 
-    // Add Gemini-specific prompt for aspect ratio template
-    if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
-      processedPrompt += '\nBased on the reference image and following the prompt , generate new content while strictly maintaining the aspect ratio of the ratio template (last image). Fill the entire canvas of the ratio template with relevant content, completely removing its original appearance.\nImportant: Extend or adapt the generated content to perfectly fit the aspect ratio template provided, ensuring no traces of the template remain visible.';
-    }
+    // NOTE: Gemini-specific English instruction is now added AFTER translation
+    // to prevent the translation service from modifying or removing it.
+    // See addGeminiInstruction() function below.
 
     return processedPrompt;
+  };
+
+  // Helper function to add Gemini-specific instruction after translation
+  const addGeminiInstruction = (prompt: string): string => {
+    if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
+      return prompt + '\nBased on the reference image and following the prompt , generate new content while strictly maintaining the aspect ratio of the ratio template (last image). Fill the entire canvas of the ratio template with relevant content, completely removing its original appearance.\nImportant: Extend or adapt the generated content to perfectly fit the aspect ratio template provided, ensuring no traces of the template remain visible.';
+    }
+    return prompt;
   };
 
   // Helper function to get the R2 URL for ratio template
@@ -419,13 +426,16 @@ const StoryboardWorkspace: React.FC = () => {
     
     try {
       let processedPrompt = processPrompt(frame);
-      
+
       // Translate prompt if translation is enabled
       if (translationOption === 'translate') {
         setIsTranslating(true);
         processedPrompt = await translateToEnglish(processedPrompt);
         setIsTranslating(false);
       }
+
+      // Add Gemini-specific instruction AFTER translation to prevent it from being modified
+      processedPrompt = addGeminiInstruction(processedPrompt);
       
       // Use originalPrompt if available, otherwise use current prompt
       const promptToCheck = frame.originalPrompt || frame.prompt;
@@ -852,18 +862,24 @@ const StoryboardWorkspace: React.FC = () => {
       if (translationOption === 'translate') {
         setIsTranslating(true);
         console.log('Translating prompts...');
-        
+
         // Process prompts and translate them
         const processedPrompts = framesToGenerate.map(frame => processPrompt(frame));
         const translatedPrompts = await translateBatch(processedPrompts);
-        
-        // Update frames with translated prompts
+
+        // Update frames with translated prompts, then add Gemini instruction
         framesToProcess = framesToGenerate.map((frame, index) => ({
           ...frame,
-          translatedPrompt: translatedPrompts[index]
+          translatedPrompt: addGeminiInstruction(translatedPrompts[index])
         }));
-        
+
         setIsTranslating(false);
+      } else {
+        // If translation is disabled, still need to add Gemini instruction
+        framesToProcess = framesToGenerate.map((frame) => ({
+          ...frame,
+          translatedPrompt: addGeminiInstruction(processPrompt(frame))
+        }));
       }
       
       // Step 1: Submit all generation requests at once
