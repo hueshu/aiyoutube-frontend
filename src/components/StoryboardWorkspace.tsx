@@ -379,26 +379,183 @@ const StoryboardWorkspace: React.FC = () => {
 
   // Helper function to add Gemini-specific instruction after translation
   const addGeminiInstruction = (prompt: string): string => {
-    if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
-      return prompt + '\nBased on the reference image and following the prompt , generate new content while strictly maintaining the aspect ratio of the ratio template (last image). Fill the entire canvas of the ratio template with relevant content, completely removing its original appearance.\nImportant: Extend or adapt the generated content to perfectly fit the aspect ratio template provided, ensuring no traces of the template remain visible.';
-    }
+    // Gemini模型不再需要比例模板相关的指令
+    // 改用填充后的角色图片来控制比例
     return prompt;
+  };;
+
+  // Helper function to parse aspect ratio from imageSize string like '[16:9]'
+  const parseAspectRatio = (imageSize: string): { width: number; height: number } | null => {
+    const match = imageSize.match(/\[(\d+):(\d+)\]/);
+    if (!match) return null;
+    return {
+      width: parseInt(match[1]),
+      height: parseInt(match[2])
+    };
   };
 
-  // Helper function to get the R2 URL for ratio template
-  const getRatioTemplateUrl = (imageSize: string): string | null => {
-    // These are pre-uploaded ratio templates in R2 storage
-    // Format matches the backend's expected pattern: /api/v1/storage/{path}
-    const ratioMap: Record<string, string> = {
-      '[1:1]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/1_1_ratio_template.jpg',
-      '[16:9]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/16_9_ratio_template.jpg',
-      '[4:3]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/4_3_ratio_template.jpg',
-      '[3:2]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/3_2_ratio_template.jpg',
-      '[9:16]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/9_16_ratio_template.jpg',
-      '[3:4]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/3_4_ratio_template.jpg',
-      '[2:3]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/2_3_ratio_template.jpg'
-    };
-    return ratioMap[imageSize] || null;
+  // Helper function to pad image to target aspect ratio using edge pixels
+  const padImageToRatio = async (
+    imageUrl: string,
+    targetRatio: { width: number; height: number }
+  ): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = document.createElement('img');
+      img.crossOrigin = 'anonymous'; // Enable CORS
+      
+      img.onload = () => {
+        try {
+          const srcWidth = img.width;
+          const srcHeight = img.height;
+          const srcRatio = srcWidth / srcHeight;
+          const targetRatioValue = targetRatio.width / targetRatio.height;
+          
+          let canvasWidth: number;
+          let canvasHeight: number;
+          let offsetX = 0;
+          let offsetY = 0;
+          
+          // Calculate target dimensions
+          if (srcRatio > targetRatioValue) {
+            // Source is wider, need to add padding top/bottom
+            canvasWidth = srcWidth;
+            canvasHeight = Math.round(srcWidth / targetRatioValue);
+            offsetY = Math.round((canvasHeight - srcHeight) / 2);
+          } else {
+            // Source is taller or equal, need to add padding left/right
+            canvasHeight = srcHeight;
+            canvasWidth = Math.round(srcHeight * targetRatioValue);
+            offsetX = Math.round((canvasWidth - srcWidth) / 2);
+          }
+          
+          // Create canvas
+          const canvas = document.createElement('canvas');
+          canvas.width = canvasWidth;
+          canvas.height = canvasHeight;
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            reject(new Error('Failed to get canvas context'));
+            return;
+          }
+          
+          // Fill canvas with edge pixels
+          if (offsetY > 0) {
+            // Top/bottom padding needed
+            // Draw top padding using first row
+            ctx.drawImage(img, 0, 0, srcWidth, 1, 0, 0, canvasWidth, offsetY);
+            // Draw bottom padding using last row
+            ctx.drawImage(img, 0, srcHeight - 1, srcWidth, 1, 0, offsetY + srcHeight, canvasWidth, offsetY);
+          }
+          
+          if (offsetX > 0) {
+            // Left/right padding needed
+            // Draw left padding using first column
+            ctx.drawImage(img, 0, 0, 1, srcHeight, 0, 0, offsetX, canvasHeight);
+            // Draw right padding using last column
+            ctx.drawImage(img, srcWidth - 1, 0, 1, srcHeight, offsetX + srcWidth, 0, offsetX, canvasHeight);
+          }
+          
+          // Draw the original image in the center
+          ctx.drawImage(img, offsetX, offsetY);
+          
+          // Convert canvas to blob
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve(blob);
+              } else {
+                reject(new Error('Failed to convert canvas to blob'));
+              }
+            },
+            'image/jpeg',
+            0.95
+          );
+        } catch (error) {
+          reject(error);
+        }
+      };
+      
+      img.onerror = () => {
+        reject(new Error(`Failed to load image: ${imageUrl}`));
+      };
+      
+      img.src = imageUrl;
+    });
+  };
+
+  // Helper function to upload padded image to R2
+  const uploadPaddedImage = async (
+    blob: Blob,
+    characterId: number,
+    ratio: string,
+    originalFilename: string
+  ): Promise<string> => {
+    const formData = new FormData();
+    formData.append('file', blob, `padded_${characterId}_${ratio}_${originalFilename}`);
+    formData.append('character_id', characterId.toString());
+    formData.append('ratio', ratio);
+    formData.append('original_filename', originalFilename);
+
+    const response = await fetch(`${API_URL}/characters/padded-image`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${getAuthToken()}`
+      },
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to upload padded image: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.image_url;
+  };
+
+  // Helper function to get or create padded character image
+  const getOrCreatePaddedImage = async (
+    characterId: number,
+    characterImageUrl: string,
+    imageSize: string
+  ): Promise<string> => {
+    // Parse ratio
+    const ratio = parseAspectRatio(imageSize);
+    if (!ratio) {
+      console.warn('Invalid image size format:', imageSize);
+      return characterImageUrl; // Return original if ratio is invalid
+    }
+
+    // Extract original filename from URL
+    const urlParts = characterImageUrl.split('/');
+    const originalFilename = urlParts[urlParts.length - 1] || 'unknown.jpg';
+
+    // Generate cache key: padded-chars/{ratio}_{characterId}_{originalFilename}
+    const ratioString = imageSize.replace(/[\[\]]/g, '').replace(':', '_');
+    const cacheKey = `padded-chars/${ratioString}_${characterId}_${originalFilename}`;
+
+    // Check if padded image already exists in R2
+    try {
+      const checkUrl = `${API_URL}/storage/${cacheKey}`;
+      const checkResponse = await fetch(checkUrl, { method: 'HEAD' });
+
+      if (checkResponse.ok) {
+        console.log('Found cached padded image:', checkUrl);
+        return checkUrl;
+      }
+    } catch (error) {
+      console.log('Padded image not in cache, will create:', error);
+    }
+
+    // Create padded image
+    console.log('Creating padded image for character', characterId, 'with ratio', imageSize);
+    const paddedBlob = await padImageToRatio(characterImageUrl, ratio);
+
+    // Upload to R2
+    const paddedImageUrl = await uploadPaddedImage(paddedBlob, characterId, ratioString, originalFilename);
+    console.log('Uploaded padded image:', paddedImageUrl);
+
+    return paddedImageUrl;
   };
 
   // Helper function to get auth token
@@ -449,7 +606,8 @@ const StoryboardWorkspace: React.FC = () => {
       
       // Collect all character images as an array
       const characterImageUrls: string[] = [];
-      
+      const characterIds: number[] = []; // Track character IDs for padding
+
       // Only collect images for characters that appear in this frame's prompt
       charactersInPrompt.forEach(scriptChar => {
         const charId = characterMapping[scriptChar];
@@ -459,6 +617,7 @@ const StoryboardWorkspace: React.FC = () => {
           if (character && character.image_url) {
             // Add the image URL to the array
             characterImageUrls.push(character.image_url);
+            characterIds.push(character.id);
             console.log(`Added character image for "${scriptChar}":`, character.image_url);
           } else {
             console.log(`No character found with ID ${charId} for "${scriptChar}"`);
@@ -467,16 +626,24 @@ const StoryboardWorkspace: React.FC = () => {
           console.log(`No mapping found for "${scriptChar}"`);
         }
       });
-      
+
       console.log('Character image URLs to send:', characterImageUrls);
 
-      // For Gemini model, add ratio template image URL
-      if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
-        const templateUrl = getRatioTemplateUrl(imageSize);
-        if (templateUrl) {
-          // Add the template URL to the end of the array, same as character images
-          characterImageUrls.push(templateUrl);
-          console.log('Added ratio template URL for aspect ratio:', imageSize, templateUrl);
+      // For Gemini model, pad character images to target ratio
+      if (model === 'gemini-2.5-flash-image-preview' && imageSize && characterImageUrls.length > 0) {
+        console.log('Padding character images for Gemini to ratio:', imageSize);
+        try {
+          const paddedUrls = await Promise.all(
+            characterImageUrls.map((url, index) =>
+              getOrCreatePaddedImage(characterIds[index], url, imageSize)
+            )
+          );
+          // Replace original URLs with padded URLs
+          characterImageUrls.splice(0, characterImageUrls.length, ...paddedUrls);
+          console.log('Using padded character images:', characterImageUrls);
+        } catch (error) {
+          console.error('Failed to pad character images:', error);
+          // Continue with original images if padding fails
         }
       }
 
@@ -893,23 +1060,36 @@ const StoryboardWorkspace: React.FC = () => {
           const promptToCheck = frame.originalPrompt || frame.prompt;
           const charactersInFrame = extractCharactersFromPrompt(promptToCheck);
           const frameCharacterImageUrls: string[] = [];
-          
+          const frameCharacterIds: number[] = [];
+
           // Collect images for all characters in this frame as an array
           charactersInFrame.forEach(scriptChar => {
             if (characterImages[scriptChar]) {
               frameCharacterImageUrls.push(characterImages[scriptChar]);
+              const charId = characterMapping[scriptChar];
+              if (charId) {
+                frameCharacterIds.push(charId);
+              }
               console.log(`Frame ${frame.frame_number} using character image for ${scriptChar}:`, characterImages[scriptChar]);
             }
           });
-          
+
           console.log(`Frame ${frame.frame_number} character image URLs:`, frameCharacterImageUrls);
 
-          // For Gemini model, add ratio template image URL
-          if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
-            const templateUrl = getRatioTemplateUrl(imageSize);
-            if (templateUrl) {
-              frameCharacterImageUrls.push(templateUrl);
-              console.log(`Frame ${frame.frame_number} added ratio template URL for aspect ratio:`, imageSize, templateUrl);
+          // For Gemini model, pad character images to target ratio
+          if (model === 'gemini-2.5-flash-image-preview' && imageSize && frameCharacterImageUrls.length > 0) {
+            try {
+              const paddedUrls = await Promise.all(
+                frameCharacterImageUrls.map((url, index) =>
+                  getOrCreatePaddedImage(frameCharacterIds[index], url, imageSize)
+                )
+              );
+              // Replace original URLs with padded URLs
+              frameCharacterImageUrls.splice(0, frameCharacterImageUrls.length, ...paddedUrls);
+              console.log(`Frame ${frame.frame_number} using padded character images:`, frameCharacterImageUrls);
+            } catch (error) {
+              console.error(`Frame ${frame.frame_number} failed to pad character images:`, error);
+              // Continue with original images if padding fails
             }
           }
 
