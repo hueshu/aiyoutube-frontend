@@ -1020,10 +1020,57 @@ const StoryboardWorkspace: React.FC = () => {
       console.log('Character images:', characterImages);
       console.log('Image size:', imageSize);
       console.log('Model:', model);
-      
+
       // Set initial batch progress
       setBatchProgress({ current: 0, total: framesToGenerate.length, currentFrame: 0 });
-      
+
+      // For Gemini model, pad all character images once before batch processing
+      let paddedCharacterImages: Record<string, string> = {};
+      if (model === 'gemini-2.5-flash-image-preview' && imageSize) {
+        console.log('Pre-padding character images for Gemini...');
+
+        // Collect all unique characters used across all frames
+        const uniqueCharacters = new Set<string>();
+        framesToGenerate.forEach(frame => {
+          const promptToCheck = frame.originalPrompt || frame.prompt;
+          const charactersInFrame = extractCharactersFromPrompt(promptToCheck);
+          charactersInFrame.forEach(char => {
+            if (characterImages[char]) {
+              uniqueCharacters.add(char);
+            }
+          });
+        });
+
+        console.log('Unique characters to pad:', Array.from(uniqueCharacters));
+
+        // Pad all unique characters in parallel
+        try {
+          const paddingTasks = Array.from(uniqueCharacters).map(async (scriptChar) => {
+            const charId = characterMapping[scriptChar];
+            const imageUrl = characterImages[scriptChar];
+            if (charId && imageUrl) {
+              const paddedUrl = await getOrCreatePaddedImage(charId, imageUrl, imageSize);
+              return { scriptChar, paddedUrl };
+            }
+            return { scriptChar, paddedUrl: imageUrl };
+          });
+
+          const paddingResults = await Promise.all(paddingTasks);
+          paddingResults.forEach(({ scriptChar, paddedUrl }) => {
+            paddedCharacterImages[scriptChar] = paddedUrl;
+          });
+
+          console.log('All characters padded successfully:', paddedCharacterImages);
+        } catch (error) {
+          console.error('Failed to pad some character images:', error);
+          // Fall back to original images if padding fails
+          paddedCharacterImages = { ...characterImages };
+        }
+      } else {
+        // For non-Gemini models, use original images
+        paddedCharacterImages = { ...characterImages };
+      }
+
       // Translate prompts if translation is enabled
       let framesToProcess = framesToGenerate;
       if (translationOption === 'translate') {
@@ -1048,7 +1095,7 @@ const StoryboardWorkspace: React.FC = () => {
           translatedPrompt: addGeminiInstruction(processPrompt(frame))
         }));
       }
-      
+
       // Step 1: Submit all generation requests at once
       console.log('Submitting all generation requests...');
       const taskPromises = framesToProcess.map(async (frame) => {
@@ -1060,38 +1107,16 @@ const StoryboardWorkspace: React.FC = () => {
           const promptToCheck = frame.originalPrompt || frame.prompt;
           const charactersInFrame = extractCharactersFromPrompt(promptToCheck);
           const frameCharacterImageUrls: string[] = [];
-          const frameCharacterIds: number[] = [];
 
-          // Collect images for all characters in this frame as an array
+          // Use pre-padded images (for Gemini) or original images (for other models)
           charactersInFrame.forEach(scriptChar => {
-            if (characterImages[scriptChar]) {
-              frameCharacterImageUrls.push(characterImages[scriptChar]);
-              const charId = characterMapping[scriptChar];
-              if (charId) {
-                frameCharacterIds.push(charId);
-              }
-              console.log(`Frame ${frame.frame_number} using character image for ${scriptChar}:`, characterImages[scriptChar]);
+            if (paddedCharacterImages[scriptChar]) {
+              frameCharacterImageUrls.push(paddedCharacterImages[scriptChar]);
+              console.log(`Frame ${frame.frame_number} using character image for ${scriptChar}:`, paddedCharacterImages[scriptChar]);
             }
           });
 
           console.log(`Frame ${frame.frame_number} character image URLs:`, frameCharacterImageUrls);
-
-          // For Gemini model, pad character images to target ratio
-          if (model === 'gemini-2.5-flash-image-preview' && imageSize && frameCharacterImageUrls.length > 0) {
-            try {
-              const paddedUrls = await Promise.all(
-                frameCharacterImageUrls.map((url, index) =>
-                  getOrCreatePaddedImage(frameCharacterIds[index], url, imageSize)
-                )
-              );
-              // Replace original URLs with padded URLs
-              frameCharacterImageUrls.splice(0, frameCharacterImageUrls.length, ...paddedUrls);
-              console.log(`Frame ${frame.frame_number} using padded character images:`, frameCharacterImageUrls);
-            } catch (error) {
-              console.error(`Frame ${frame.frame_number} failed to pad character images:`, error);
-              // Continue with original images if padding fails
-            }
-          }
 
           setGeneratingFrames(prev => new Set(prev).add(frame.frame_number));
           setGeneratingTimers(prev => {
