@@ -590,6 +590,18 @@ const StoryboardWorkspace: React.FC = () => {
       return;
     }
 
+    // Check if model is selected
+    if (!model) {
+      alert('请先选择AI模型');
+      return;
+    }
+
+    // Check if imageSize is selected
+    if (!imageSize) {
+      alert('请先选择图片尺寸');
+      return;
+    }
+
     const frame = scriptFrames.find(f => f.frame_number === frameNumber);
     if (!frame) return;
 
@@ -1022,6 +1034,13 @@ const StoryboardWorkspace: React.FC = () => {
       return;
     }
 
+    // Check if model is selected
+    if (!model) {
+      alert('请先选择AI模型');
+      return;
+    }
+
+    // Check if imageSize is selected
     if (!imageSize) {
       alert('请选择图片尺寸');
       return;
@@ -2112,7 +2131,7 @@ const StoryboardWorkspace: React.FC = () => {
               </button>
               <button
                 onClick={generateAllImages}
-                disabled={loading || !imageSize || isTranslating}
+                disabled={loading || !imageSize || !model || isTranslating}
                 className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50"
               >
                 {isTranslating ? '翻译中...' : loading ? (batchProgress ? `生成中 (${batchProgress.current + 1}/${batchProgress.total})` : '生成中...') : '批量生成分镜图'}
@@ -2374,7 +2393,7 @@ const StoryboardWorkspace: React.FC = () => {
                           // Show generate button if no image
                           <button
                             onClick={() => generateSingleImage(frame.frame_number)}
-                            disabled={generatingFrames.has(frame.frame_number) || !imageSize}
+                            disabled={generatingFrames.has(frame.frame_number) || !imageSize || !model}
                             className="text-blue-500 hover:text-blue-700 disabled:opacity-50"
                             title="生成图片"
                           >
@@ -2384,7 +2403,7 @@ const StoryboardWorkspace: React.FC = () => {
                           // Show regenerate button if image exists
                           <button
                             onClick={() => generateSingleImage(frame.frame_number)}
-                            disabled={generatingFrames.has(frame.frame_number) || !imageSize}
+                            disabled={generatingFrames.has(frame.frame_number) || !imageSize || !model}
                             className="text-blue-500 hover:text-blue-700 disabled:opacity-50"
                             title="重新生成（添加新图片）"
                           >
