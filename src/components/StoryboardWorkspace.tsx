@@ -377,12 +377,31 @@ const StoryboardWorkspace: React.FC = () => {
     return processedPrompt;
   };
 
+  // 比例模板URL映射（用于无角色场景的回退）
+  const RATIO_TEMPLATE_MAP: Record<string, string> = {
+    '[1:1]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/1_1_ratio_template.jpg',
+    '[16:9]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/16_9_ratio_template.jpg',
+    '[4:3]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/4_3_ratio_template.jpg',
+    '[3:2]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/3_2_ratio_template.jpg',
+    '[9:16]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/9_16_ratio_template.jpg',
+    '[3:4]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/3_4_ratio_template.jpg',
+    '[2:3]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/2_3_ratio_template.jpg'
+  };
+
+  // Helper function to get ratio template URL
+  const getRatioTemplateUrl = (imageSize: string): string | null => {
+    return RATIO_TEMPLATE_MAP[imageSize] || null;
+  };
+
   // Helper function to add Gemini-specific instruction after translation
-  const addGeminiInstruction = (prompt: string): string => {
-    // Gemini模型不再需要比例模板相关的指令
-    // 改用填充后的角色图片来控制比例
-    return prompt;
-  };;
+  // shouldAddInstruction: true when using ratio template (no characters), false when using character images
+  const addGeminiInstruction = (prompt: string, shouldAddInstruction: boolean): string => {
+    if (!shouldAddInstruction) {
+      return prompt;
+    }
+    // 添加比例模板相关的英文指令（仅在无角色场景下使用）
+    return prompt + '\nBased on the reference image and following the prompt , generate new content while strictly maintaining the aspect ratio of the ratio template (last image). Fill the entire canvas of the ratio template with relevant content, completely removing its original appearance.\nImportant: Extend or adapt the generated content to perfectly fit the aspect ratio template provided, ensuring no traces of the template remain visible.';
+  };
 
   // Helper function to parse aspect ratio from imageSize string like '[16:9]'
   const parseAspectRatio = (imageSize: string): { width: number; height: number } | null => {
@@ -591,9 +610,8 @@ const StoryboardWorkspace: React.FC = () => {
         setIsTranslating(false);
       }
 
-      // Add Gemini-specific instruction AFTER translation to prevent it from being modified
-      processedPrompt = addGeminiInstruction(processedPrompt);
-      
+      // Note: Gemini instruction is now added later based on whether we have character images
+
       // Use originalPrompt if available, otherwise use current prompt
       const promptToCheck = frame.originalPrompt || frame.prompt;
       
@@ -647,13 +665,27 @@ const StoryboardWorkspace: React.FC = () => {
         }
       }
 
+      // Fallback: If no character images and using Gemini, add ratio template
+      let shouldAddGeminiInstruction = false;
+      if (characterImageUrls.length === 0 && model === 'gemini-2.5-flash-image-preview' && imageSize) {
+        const templateUrl = getRatioTemplateUrl(imageSize);
+        if (templateUrl) {
+          characterImageUrls.push(templateUrl);
+          shouldAddGeminiInstruction = true;
+          console.log('No characters in frame, using ratio template:', templateUrl);
+        }
+      }
+
       // Create AbortController with 10 minute timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 minutes
 
+      // Add Gemini instruction if needed (when using ratio template fallback)
+      const finalPrompt = addGeminiInstruction(processedPrompt, shouldAddGeminiInstruction);
+
       // Prepare request body based on whether we have character images
       const requestBody: any = {
-        prompt: processedPrompt,
+        prompt: finalPrompt,
         image_size: imageSize,  // Keep brackets for image size
         model: model
       };
@@ -1081,18 +1113,19 @@ const StoryboardWorkspace: React.FC = () => {
         const processedPrompts = framesToGenerate.map(frame => processPrompt(frame));
         const translatedPrompts = await translateBatch(processedPrompts);
 
-        // Update frames with translated prompts, then add Gemini instruction
+        // Update frames with translated prompts
+        // Note: Gemini instruction is now added per-frame based on whether it has characters
         framesToProcess = framesToGenerate.map((frame, index) => ({
           ...frame,
-          translatedPrompt: addGeminiInstruction(translatedPrompts[index])
+          translatedPrompt: translatedPrompts[index]
         }));
 
         setIsTranslating(false);
       } else {
-        // If translation is disabled, still need to add Gemini instruction
+        // If translation is disabled, process prompts
         framesToProcess = framesToGenerate.map((frame) => ({
           ...frame,
-          translatedPrompt: addGeminiInstruction(processPrompt(frame))
+          translatedPrompt: processPrompt(frame)
         }));
       }
 
@@ -1116,6 +1149,17 @@ const StoryboardWorkspace: React.FC = () => {
             }
           });
 
+          // Fallback: If no character images and using Gemini, add ratio template
+          let shouldAddGeminiInstruction = false;
+          if (frameCharacterImageUrls.length === 0 && model === 'gemini-2.5-flash-image-preview' && imageSize) {
+            const templateUrl = getRatioTemplateUrl(imageSize);
+            if (templateUrl) {
+              frameCharacterImageUrls.push(templateUrl);
+              shouldAddGeminiInstruction = true;
+              console.log(`Frame ${frame.frame_number} has no characters, using ratio template:`, templateUrl);
+            }
+          }
+
           console.log(`Frame ${frame.frame_number} character image URLs:`, frameCharacterImageUrls);
 
           setGeneratingFrames(prev => new Set(prev).add(frame.frame_number));
@@ -1130,6 +1174,9 @@ const StoryboardWorkspace: React.FC = () => {
               : f
           ));
 
+          // Add Gemini instruction if needed (when using ratio template fallback)
+          const finalPrompt = addGeminiInstruction(processedPrompt, shouldAddGeminiInstruction);
+
           const response = await fetch(`${API_URL}/generation/single`, {
             method: 'POST',
             headers: {
@@ -1137,7 +1184,7 @@ const StoryboardWorkspace: React.FC = () => {
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-              prompt: processedPrompt,
+              prompt: finalPrompt,
               character_image_urls: frameCharacterImageUrls.length > 0 ? frameCharacterImageUrls : undefined,  // Send as array if not empty
               image_size: imageSize,  // Keep brackets
               model: model
