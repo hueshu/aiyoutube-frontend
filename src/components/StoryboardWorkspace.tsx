@@ -61,7 +61,7 @@ const StoryboardWorkspace: React.FC = () => {
   const [scriptFrames, setScriptFrames] = useState<ScriptFrame[]>([]);
   const [characterMapping, setCharacterMapping] = useState<Record<string, number>>({});
   const [imageSize, setImageSize] = useState<string>('');
-  const [model, setModel] = useState<'sora_image' | 'gemini-2.5-flash-image-preview' | 'seedream-4.0' | 'doubao-seedream-4-0-250828'>('sora_image');
+  const [model, setModel] = useState<'sora_image' | 'gemini-2.5-flash-image-preview' | 'seedream-4.0' | 'doubao-seedream-4-0-250828' | ''>('');
   const [loading, setLoading] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; currentFrame: number } | null>(null);
   const [editingRow, setEditingRow] = useState<number | null>(null);
@@ -1729,6 +1729,7 @@ const StoryboardWorkspace: React.FC = () => {
               }}
               className="w-full border rounded px-3 py-2"
             >
+              <option value="">请选择模型</option>
               <option value="sora_image">Sora Image</option>
               <option value="gemini-2.5-flash-image-preview">Gemini 2.5 Flash</option>
               <option value="seedream-4.0">Seedream 4.0（支持多图编辑）</option>
