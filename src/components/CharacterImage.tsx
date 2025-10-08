@@ -23,6 +23,8 @@ const CharacterImage: React.FC = () => {
   const [selectedSize, setSelectedSize] = useState<string>('[1:1]');
   const [selectedView, setSelectedView] = useState<ViewType>('front');
   const [customPrompt, setCustomPrompt] = useState<string>('');
+  const [enableTranslation, setEnableTranslation] = useState<boolean>(true); // 默认开启翻译
+  const [isTranslating, setIsTranslating] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string>('');
   const [history, setHistory] = useState<GenerationHistory[]>([]);
@@ -208,6 +210,35 @@ const CharacterImage: React.FC = () => {
     }
   };
 
+  // 翻译prompt为英文
+  const translateToEnglish = async (text: string): Promise<string> => {
+    if (!text || !enableTranslation) {
+      return text;
+    }
+
+    try {
+      const response = await fetch('https://aiyoutubebackendprod.email777.org/api/v1/translate', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text })
+      });
+
+      if (!response.ok) {
+        console.error('Translation failed:', response.status);
+        return text; // 失败返回原文
+      }
+
+      const data = await response.json();
+      return data.translatedText || text;
+    } catch (error) {
+      console.error('Translation error:', error);
+      return text; // 出错返回原文
+    }
+  };
+
   // 生成图片
   const handleGenerate = async () => {
     if (!uploadedImage) {
@@ -224,10 +255,20 @@ const CharacterImage: React.FC = () => {
     setIsGenerating(true);
 
     try {
-      // 1. 将上传的图片转为ObjectURL
+      // 1. 翻译prompt（如果启用）
+      let finalPrompt = fullPrompt;
+      if (enableTranslation) {
+        setIsTranslating(true);
+        finalPrompt = await translateToEnglish(fullPrompt);
+        setIsTranslating(false);
+        console.log('Original prompt:', fullPrompt);
+        console.log('Translated prompt:', finalPrompt);
+      }
+
+      // 2. 将上传的图片转为ObjectURL
       const imageUrl = URL.createObjectURL(uploadedImage);
 
-      // 2. 解析目标宽高比
+      // 3. 解析目标宽高比
       const ratio = parseAspectRatio(selectedSize);
       if (!ratio) {
         alert('无效的尺寸格式');
@@ -235,7 +276,7 @@ const CharacterImage: React.FC = () => {
         return;
       }
 
-      // 3. Padding到目标比例
+      // 4. Padding到目标比例
       console.log('Padding image to ratio:', selectedSize);
       const paddedBlob = await padImageToRatio(imageUrl, ratio);
       console.log('Padded blob size:', paddedBlob.size);
@@ -256,9 +297,9 @@ const CharacterImage: React.FC = () => {
         return;
       }
 
-      // 5. 提交请求（使用URL，后端会自动处理）
+      // 5. 提交请求（使用翻译后的prompt）
       const requestBody = {
-        prompt: fullPrompt,
+        prompt: finalPrompt,  // 使用翻译后的prompt
         image_size: selectedSize,
         model: 'gemini-2.5-flash-image-preview',
         character_image_urls: [paddedImageUrl]  // 提交URL数组
@@ -284,13 +325,13 @@ const CharacterImage: React.FC = () => {
         // Gemini同步模式成功
         setGeneratedImage(data.image_url);
 
-        // 添加到历史记录
+        // 添加到历史记录（保存原始prompt）
         const historyItem: GenerationHistory = {
           id: Date.now().toString(),
           timestamp: Date.now(),
           inputImage: previewUrl,
           outputImage: data.image_url,
-          prompt: fullPrompt,
+          prompt: fullPrompt,  // 保存原始中文prompt，方便用户查看
           size: selectedSize,
           viewType: selectedView
         };
@@ -531,16 +572,36 @@ const CharacterImage: React.FC = () => {
                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none bg-white"
                     rows={3}
                   />
+
+                  {/* 翻译选项 */}
+                  <div className="mt-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={enableTranslation}
+                        onChange={(e) => setEnableTranslation(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-700">
+                        自动翻译为英文（推荐，提升Gemini生成质量）
+                      </span>
+                    </label>
+                  </div>
                 </div>
               </div>
 
               {/* 生成按钮 */}
               <button
                 onClick={handleGenerate}
-                disabled={isGenerating || !uploadedImage}
+                disabled={isTranslating || isGenerating || !uploadedImage}
                 className="w-full px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
               >
-                {isGenerating ? (
+                {isTranslating ? (
+                  <>
+                    <Loader className="w-5 h-5 animate-spin" />
+                    翻译中...
+                  </>
+                ) : isGenerating ? (
                   <>
                     <Loader className="w-5 h-5 animate-spin" />
                     生成中...
