@@ -385,7 +385,8 @@ const StoryboardWorkspace: React.FC = () => {
     '[3:2]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/3_2_ratio_template.jpg',
     '[9:16]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/9_16_ratio_template.jpg',
     '[3:4]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/3_4_ratio_template.jpg',
-    '[2:3]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/2_3_ratio_template.jpg'
+    '[2:3]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/2_3_ratio_template.jpg',
+    '[8:17]': 'https://aiyoutubebackendprod.email777.org/api/v1/storage/ratio-templates/8_17_ratio_template.jpg'
   };
 
   // Helper function to get ratio template URL

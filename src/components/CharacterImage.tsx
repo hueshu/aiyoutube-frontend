@@ -20,7 +20,7 @@ const CharacterImage: React.FC = () => {
   // 角色图处理状态
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
-  const [selectedSize, setSelectedSize] = useState<string>('1:1');
+  const [selectedSize, setSelectedSize] = useState<string>('[1:1]');
   const [selectedView, setSelectedView] = useState<ViewType>('front');
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -37,11 +37,12 @@ const CharacterImage: React.FC = () => {
   const mergeInputRef = useRef<HTMLInputElement>(null);
 
   const sizeOptions = [
-    { value: '1:1', label: '1:1 (正方形)' },
-    { value: '16:9', label: '16:9 (横屏)' },
-    { value: '9:16', label: '9:16 (竖屏)' },
-    { value: '4:3', label: '4:3 (标准)' },
-    { value: '3:4', label: '3:4 (竖版)' },
+    { value: '[1:1]', label: '1:1 (正方形)' },
+    { value: '[16:9]', label: '16:9 (横屏)' },
+    { value: '[9:16]', label: '9:16 (竖屏)' },
+    { value: '[4:3]', label: '4:3 (标准)' },
+    { value: '[3:4]', label: '3:4 (竖版)' },
+    { value: '[8:17]', label: '8:17' },
   ];
 
   const viewOptions = [
@@ -57,16 +58,104 @@ const CharacterImage: React.FC = () => {
     return localStorage.getItem('token') || '';
   };
 
-  // 文件转base64
-  const fileToBase64 = (file: File): Promise<string> => {
+  // Blob转base64
+  const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(blob);
       reader.onload = () => {
         const base64 = reader.result as string;
         resolve(base64);
       };
       reader.onerror = reject;
+    });
+  };
+
+  // 解析宽高比
+  const parseAspectRatio = (imageSize: string): { width: number; height: number } | null => {
+    const match = imageSize.match(/\[(\d+):(\d+)\]/);
+    if (!match) return null;
+    return {
+      width: parseInt(match[1]),
+      height: parseInt(match[2])
+    };
+  };
+
+  // 使用边缘像素填充图片到目标宽高比
+  const padImageToRatio = async (
+    imageUrl: string,
+    targetRatio: { width: number; height: number }
+  ): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = document.createElement('img');
+      img.crossOrigin = 'anonymous';
+
+      img.onload = () => {
+        try {
+          const srcWidth = img.width;
+          const srcHeight = img.height;
+          const srcRatio = srcWidth / srcHeight;
+          const targetRatioValue = targetRatio.width / targetRatio.height;
+
+          let canvasWidth: number;
+          let canvasHeight: number;
+          let offsetX = 0;
+          let offsetY = 0;
+
+          if (srcRatio > targetRatioValue) {
+            canvasWidth = srcWidth;
+            canvasHeight = Math.round(srcWidth / targetRatioValue);
+            offsetY = Math.round((canvasHeight - srcHeight) / 2);
+          } else {
+            canvasHeight = srcHeight;
+            canvasWidth = Math.round(srcHeight * targetRatioValue);
+            offsetX = Math.round((canvasWidth - srcWidth) / 2);
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = canvasWidth;
+          canvas.height = canvasHeight;
+          const ctx = canvas.getContext('2d');
+
+          if (!ctx) {
+            reject(new Error('Failed to get canvas context'));
+            return;
+          }
+
+          // 使用边缘像素填充
+          if (offsetY > 0) {
+            ctx.drawImage(img, 0, 0, srcWidth, 1, 0, 0, canvasWidth, offsetY);
+            ctx.drawImage(img, 0, srcHeight - 1, srcWidth, 1, 0, offsetY + srcHeight, canvasWidth, offsetY);
+          }
+
+          if (offsetX > 0) {
+            ctx.drawImage(img, 0, 0, 1, srcHeight, 0, 0, offsetX, canvasHeight);
+            ctx.drawImage(img, srcWidth - 1, 0, 1, srcHeight, offsetX + srcWidth, 0, offsetX, canvasHeight);
+          }
+
+          ctx.drawImage(img, offsetX, offsetY);
+
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                resolve(blob);
+              } else {
+                reject(new Error('Failed to convert canvas to blob'));
+              }
+            },
+            'image/jpeg',
+            0.95
+          );
+        } catch (error) {
+          reject(error);
+        }
+      };
+
+      img.onerror = () => {
+        reject(new Error(`Failed to load image: ${imageUrl}`));
+      };
+
+      img.src = imageUrl;
     });
   };
 
@@ -84,11 +173,23 @@ const CharacterImage: React.FC = () => {
   // 处理视图类型选择
   const handleViewChange = (view: ViewType) => {
     setSelectedView(view);
-    if (view !== 'custom') {
-      const option = viewOptions.find(v => v.value === view);
-      setCustomPrompt(option?.prompt || '');
+    // 不修改customPrompt，让用户自己追加内容
+  };
+
+  // 获取完整的prompt（标签prompt + 自定义prompt）
+  const getFullPrompt = (): string => {
+    const basePrompt = selectedView !== 'custom'
+      ? viewOptions.find(v => v.value === selectedView)?.prompt || ''
+      : '';
+
+    const trimmedCustom = customPrompt.trim();
+
+    if (basePrompt && trimmedCustom) {
+      return `${basePrompt} ${trimmedCustom}`;
+    } else if (basePrompt) {
+      return basePrompt;
     } else {
-      setCustomPrompt('');
+      return trimmedCustom;
     }
   };
 
@@ -99,7 +200,8 @@ const CharacterImage: React.FC = () => {
       return;
     }
 
-    if (!customPrompt.trim()) {
+    const fullPrompt = getFullPrompt();
+    if (!fullPrompt) {
       alert('请输入或选择提示词');
       return;
     }
@@ -107,15 +209,35 @@ const CharacterImage: React.FC = () => {
     setIsGenerating(true);
 
     try {
-      // 上传图片到服务器并获取URL
-      const base64Image = await fileToBase64(uploadedImage);
+      // 1. 将上传的图片转为ObjectURL
+      const imageUrl = URL.createObjectURL(uploadedImage);
 
+      // 2. 解析目标宽高比
+      const ratio = parseAspectRatio(selectedSize);
+      if (!ratio) {
+        alert('无效的尺寸格式');
+        setIsGenerating(false);
+        return;
+      }
+
+      // 3. Padding到目标比例
+      console.log('Padding image to ratio:', selectedSize);
+      const paddedBlob = await padImageToRatio(imageUrl, ratio);
+
+      // 4. 转base64
+      const paddedBase64 = await blobToBase64(paddedBlob);
+      console.log('Padded image base64 length:', paddedBase64.length);
+
+      // 5. 提交请求
       const requestBody = {
-        prompt: customPrompt,
+        prompt: fullPrompt,
         image_size: selectedSize,
         model: 'gemini-2.5-flash-image-preview',
-        character_image_urls: [base64Image]
+        character_image_urls: [paddedBase64]
       };
+
+      console.log('Request prompt:', fullPrompt);
+      console.log('Request image_size:', selectedSize);
 
       const response = await fetch(`${API_URL}/generation/single`, {
         method: 'POST',
@@ -138,7 +260,7 @@ const CharacterImage: React.FC = () => {
           timestamp: Date.now(),
           inputImage: previewUrl,
           outputImage: data.image_url,
-          prompt: customPrompt,
+          prompt: fullPrompt,
           size: selectedSize,
           viewType: selectedView
         };
@@ -146,6 +268,9 @@ const CharacterImage: React.FC = () => {
       } else {
         alert('生成失败: ' + (data.message || '未知错误'));
       }
+
+      // 清理ObjectURL
+      URL.revokeObjectURL(imageUrl);
     } catch (error) {
       console.error('Generation error:', error);
       alert('生成失败，请稍后重试');
@@ -362,16 +487,13 @@ const CharacterImage: React.FC = () => {
                 {/* 自定义prompt */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    提示词 {selectedView === 'custom' && <span className="text-red-500">*</span>}
+                    {selectedView === 'custom' ? '提示词' : '追加描述'} {selectedView === 'custom' && <span className="text-red-500">*</span>}
                   </label>
                   <textarea
                     value={customPrompt}
                     onChange={(e) => setCustomPrompt(e.target.value)}
-                    readOnly={selectedView !== 'custom'}
-                    placeholder={selectedView === 'custom' ? '请输入自定义提示词...' : ''}
-                    className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none ${
-                      selectedView === 'custom' ? 'bg-white' : 'bg-gray-50'
-                    }`}
+                    placeholder={selectedView === 'custom' ? '请输入自定义提示词...' : '可在此追加更多描述...'}
+                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none bg-white"
                     rows={3}
                   />
                 </div>
