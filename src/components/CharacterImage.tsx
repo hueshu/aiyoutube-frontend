@@ -238,11 +238,23 @@ const CharacterImage: React.FC = () => {
       // 3. Padding到目标比例
       console.log('Padding image to ratio:', selectedSize);
       const paddedBlob = await padImageToRatio(imageUrl, ratio);
+      console.log('Padded blob size:', paddedBlob.size);
 
       // 4. 上传padding后的图片到R2，获取URL
       const ratioString = selectedSize.replace(/[\[\]]/g, '').replace(':', '_');
-      const paddedImageUrl = await uploadPaddedImage(paddedBlob, ratioString);
-      console.log('Uploaded padded image URL:', paddedImageUrl);
+      console.log('Uploading padded image with ratio:', ratioString);
+
+      let paddedImageUrl;
+      try {
+        paddedImageUrl = await uploadPaddedImage(paddedBlob, ratioString);
+        console.log('Uploaded padded image URL:', paddedImageUrl);
+      } catch (uploadError) {
+        console.error('Failed to upload padded image:', uploadError);
+        alert('上传图片失败，请重试');
+        setIsGenerating(false);
+        URL.revokeObjectURL(imageUrl);
+        return;
+      }
 
       // 5. 提交请求（使用URL，后端会自动处理）
       const requestBody = {
@@ -252,9 +264,7 @@ const CharacterImage: React.FC = () => {
         character_image_urls: [paddedImageUrl]  // 提交URL数组
       };
 
-      console.log('Request prompt:', fullPrompt);
-      console.log('Request image_size:', selectedSize);
-      console.log('Request character_image_urls:', [paddedImageUrl]);
+      console.log('Request body:', JSON.stringify(requestBody, null, 2));
 
       const response = await fetch(`${API_URL}/generation/single`, {
         method: 'POST',
@@ -265,7 +275,10 @@ const CharacterImage: React.FC = () => {
         body: JSON.stringify(requestBody)
       });
 
+      console.log('Response status:', response.status);
+
       const data = await response.json();
+      console.log('Response data:', data);
 
       if (response.status === 200 && data.image_url && data.status === 'completed') {
         // Gemini同步模式成功
@@ -283,7 +296,12 @@ const CharacterImage: React.FC = () => {
         };
         setHistory(prev => [historyItem, ...prev]);
       } else {
-        alert('生成失败: ' + (data.message || '未知错误'));
+        console.error('Generation failed:', {
+          status: response.status,
+          data: data
+        });
+        const errorMsg = data.message || data.error || `服务器错误 (${response.status})`;
+        alert('生成失败: ' + errorMsg);
       }
 
       // 清理ObjectURL
