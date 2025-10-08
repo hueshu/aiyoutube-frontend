@@ -58,17 +58,32 @@ const CharacterImage: React.FC = () => {
     return localStorage.getItem('token') || '';
   };
 
-  // Blob转base64
-  const blobToBase64 = (blob: Blob): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onload = () => {
-        const base64 = reader.result as string;
-        resolve(base64);
-      };
-      reader.onerror = reject;
+  // 上传padding后的图片到后端，获取URL
+  const uploadPaddedImage = async (
+    blob: Blob,
+    ratio: string
+  ): Promise<string> => {
+    const formData = new FormData();
+    const timestamp = Date.now();
+    formData.append('file', blob, `temp_padded_${ratio}_${timestamp}.jpg`);
+    formData.append('character_id', '0'); // 临时图片使用0
+    formData.append('ratio', ratio);
+    formData.append('original_filename', `temp_${timestamp}.jpg`);
+
+    const response = await fetch(`${API_URL}/characters/padded-image`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${getAuthToken()}`
+      },
+      body: formData
     });
+
+    if (!response.ok) {
+      throw new Error(`Failed to upload padded image: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.image_url;
   };
 
   // 解析宽高比
@@ -224,20 +239,22 @@ const CharacterImage: React.FC = () => {
       console.log('Padding image to ratio:', selectedSize);
       const paddedBlob = await padImageToRatio(imageUrl, ratio);
 
-      // 4. 转base64
-      const paddedBase64 = await blobToBase64(paddedBlob);
-      console.log('Padded image base64 length:', paddedBase64.length);
+      // 4. 上传padding后的图片到R2，获取URL
+      const ratioString = selectedSize.replace(/[\[\]]/g, '').replace(':', '_');
+      const paddedImageUrl = await uploadPaddedImage(paddedBlob, ratioString);
+      console.log('Uploaded padded image URL:', paddedImageUrl);
 
-      // 5. 提交请求
+      // 5. 提交请求（使用URL，后端会自动处理）
       const requestBody = {
         prompt: fullPrompt,
         image_size: selectedSize,
         model: 'gemini-2.5-flash-image-preview',
-        character_image_urls: [paddedBase64]
+        character_image_urls: [paddedImageUrl]  // 提交URL数组
       };
 
       console.log('Request prompt:', fullPrompt);
       console.log('Request image_size:', selectedSize);
+      console.log('Request character_image_urls:', [paddedImageUrl]);
 
       const response = await fetch(`${API_URL}/generation/single`, {
         method: 'POST',
