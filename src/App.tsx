@@ -14,6 +14,7 @@ import Navigation from './components/Navigation'
 import LogsPage from './pages/LogsPage'
 import VideoPromptGenerator from './components/VideoPromptGenerator'
 import VideoScriptGenerator from './components/VideoScriptGenerator'
+import CharacterImage from './components/CharacterImage'
 
 function App() {
   const { isAuthenticated, isLoading, initializeAuth, user } = useAuthStore()
@@ -55,6 +56,7 @@ function App() {
             <Route path="/characters" element={<CharacterLibrary />} />
             <Route path="/music" element={<MusicLibrary />} />
             <Route path="/workspace" element={<StoryboardWorkspace />} />
+            <Route path="/character-image" element={<CharacterImage />} />
             <Route path="/projects" element={<ProjectsManager />} />
             <Route path="/video-script-generator" element={<VideoScriptGenerator />} />
             <Route path="/video-prompt" element={<VideoPromptGenerator />} />

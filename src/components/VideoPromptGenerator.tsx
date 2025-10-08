@@ -1354,7 +1354,7 @@ const VideoPromptGenerator: React.FC = () => {
                         className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none ${
                           isPaired ? 'border-blue-300 bg-blue-50 cursor-default' : 'border-gray-300'
                         }`}
-                        rows={5}
+                        rows={7}
                       />
                     </div>
 
@@ -1412,7 +1412,7 @@ const VideoPromptGenerator: React.FC = () => {
                           editingPrompts.has(image.id) ? 'border-blue-400 bg-white' :
                           'border-gray-300 bg-gray-50 cursor-pointer hover:bg-gray-100'
                         }`}
-                        rows={5}
+                        rows={7}
                         title={!editingPrompts.has(image.id) ? "点击复制内容" : ""}
                       />
                     </div>
@@ -1474,7 +1474,7 @@ const VideoPromptGenerator: React.FC = () => {
                           editingPrompts.has(`${image.id}-en`) ? 'border-blue-400 bg-white' :
                           'border-gray-300 bg-gray-50 cursor-pointer hover:bg-gray-100'
                         }`}
-                        rows={5}
+                        rows={7}
                         title={!editingPrompts.has(`${image.id}-en`) && !image.isTranslating ? "点击复制内容" : ""}
                       />
                     </div>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { Home, FileText, Users, Palette, Folder, Shield, LogOut, FileSearch, Settings, BookOpen, ChevronDown, Music, Video } from 'lucide-react';
+import { Home, FileText, Users, Palette, Folder, Shield, LogOut, FileSearch, Settings, BookOpen, ChevronDown, Music, Video, Image as ImageIcon } from 'lucide-react';
 
 const Navigation: React.FC = () => {
   const location = useLocation();
@@ -9,13 +9,18 @@ const Navigation: React.FC = () => {
   const { user, logout } = useAuthStore();
   const [showLibraryDropdown, setShowLibraryDropdown] = useState(false);
   const [showPromptDropdown, setShowPromptDropdown] = useState(false);
+  const [showImageGenDropdown, setShowImageGenDropdown] = useState(false);
 
   const navItems = [
     { path: '/', label: '首页', icon: Home },
-    { path: '/workspace', label: '工作台', icon: Palette },
     { path: '/projects', label: '项目管理', icon: Folder },
     { path: '/logs', label: '日志监控', icon: FileSearch },
     { path: '/settings', label: '设置', icon: Settings },
+  ];
+
+  const imageGenItems = [
+    { path: '/workspace', label: '生成分镜图', icon: Palette },
+    { path: '/character-image', label: '单图处理（角色图）', icon: ImageIcon },
   ];
 
   const promptItems = [
@@ -42,6 +47,7 @@ const Navigation: React.FC = () => {
 
   const isLibraryActive = libraryItems.some(item => location.pathname === item.path);
   const isPromptActive = promptItems.some(item => location.pathname === item.path);
+  const isImageGenActive = imageGenItems.some(item => location.pathname === item.path);
 
   return (
     <nav className="bg-white shadow-md">
@@ -68,6 +74,46 @@ const Navigation: React.FC = () => {
                   </Link>
                 );
               })}
+
+              {/* 生图下拉菜单 */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowImageGenDropdown(!showImageGenDropdown)}
+                  onBlur={() => setTimeout(() => setShowImageGenDropdown(false), 200)}
+                  className={`flex items-center space-x-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                    isImageGenActive
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+                  }`}
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  <span>生图</span>
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+
+                {showImageGenDropdown && (
+                  <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                    {imageGenItems.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = location.pathname === item.path;
+                      return (
+                        <Link
+                          key={item.path}
+                          to={item.path}
+                          className={`flex items-center space-x-2 px-4 py-2 text-sm transition-colors ${
+                            isActive
+                              ? 'bg-blue-50 text-blue-700'
+                              : 'text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          <Icon className="w-4 h-4" />
+                          <span>{item.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
               {/* 生成prompt下拉菜单 */}
               <div className="relative">
