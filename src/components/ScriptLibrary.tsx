@@ -354,7 +354,7 @@ export default function ScriptLibrary() {
   }
 
   // Preview editing functions
-  const handleUpdateFrame = (index: number, field: 'sequence' | 'prompt', value: string) => {
+  const handleUpdateFrame = (index: number, field: 'sequence' | 'prompt' | 'dynamicDescription' | 'narration', value: string) => {
     const newContent = [...editingPreviewContent]
     newContent[index] = { ...newContent[index], [field]: value }
     setEditingPreviewContent(newContent)
@@ -371,7 +371,9 @@ export default function ScriptLibrary() {
       : 0
     const newFrame = {
       sequence: String(lastSequence + 1).padStart(3, '0'),
-      prompt: ''
+      prompt: '',
+      dynamicDescription: '',
+      narration: ''
     }
     setEditingPreviewContent([...editingPreviewContent, newFrame])
   }
@@ -381,8 +383,15 @@ export default function ScriptLibrary() {
 
     try {
       setLoading(true)
+      // Generate CSV with 4 columns: sequence, prompt, dynamicDescription, narration
       const csvContent = editingPreviewContent
-        .map(frame => `${frame.sequence},"${frame.prompt.replace(/"/g, '""')}"`)
+        .map(frame => {
+          const seq = frame.sequence
+          const prompt = `"${(frame.prompt || '').replace(/"/g, '""')}"`
+          const dynamic = frame.dynamicDescription ? `"${frame.dynamicDescription.replace(/"/g, '""')}"` : ''
+          const narr = frame.narration ? `"${frame.narration.replace(/"/g, '""')}"` : ''
+          return `${seq},${prompt},${dynamic},${narr}`
+        })
         .join('\n')
 
       const formData = new FormData()
@@ -391,7 +400,7 @@ export default function ScriptLibrary() {
       formData.append('name', previewScript.name) // Keep existing name
       formData.append('category', previewScript.category || '未分类') // Keep existing category
 
-      console.log('Saving script with CSV content:', csvContent.substring(0, 100) + '...')
+      console.log('Saving script with CSV content:', csvContent.substring(0, 200) + '...')
       console.log('Total frames:', editingPreviewContent.length)
 
       const response = await fetch(`${API_URL}/scripts/${previewScript.id}`, {
@@ -441,7 +450,7 @@ export default function ScriptLibrary() {
   const handleUploadReplaceContent = async (file: File) => {
     try {
       const text = await file.text()
-      const result: Array<{ sequence: string; prompt: string }> = []
+      const result: Array<{ sequence: string; prompt: string; dynamicDescription?: string; narration?: string }> = []
       const lines = text.trim().split('\n')
 
       if (lines.length === 0) {
@@ -460,6 +469,9 @@ export default function ScriptLibrary() {
             firstLine.includes('描述') ||
             firstLine.includes('prompt') ||
             firstLine.includes('内容') ||
+            firstLine.includes('动态') ||
+            firstLine.includes('旁白') ||
+            firstLine.includes('对话') ||
             // Check if first value is not a number
             (lines[0].split(',')[0] && isNaN(parseInt(lines[0].split(',')[0].trim())))) {
           currentIndex = 1
@@ -468,23 +480,27 @@ export default function ScriptLibrary() {
       }
 
       // Parse CSV line properly handling quotes (ported from backend logic)
-      const parseCSVLine = (startLine: string, startIndex: number): { sequence: number; prompt: string; nextIndex: number } | null => {
+      const parseCSVLine = (startLine: string, startIndex: number): { sequence: number; prompt: string; dynamicDescription?: string; narration?: string; nextIndex: number } | null => {
         // Simple case: no quotes
         if (!startLine.includes('"')) {
-          const [sequence, ...promptParts] = startLine.split(',')
-          const seqNum = parseInt(sequence.trim())
+          const parts = startLine.split(',')
+          const seqNum = parseInt(parts[0]?.trim())
           if (!isNaN(seqNum)) {
             return {
               sequence: seqNum,
-              prompt: promptParts.join(',').trim(),
+              prompt: parts[1]?.trim() || '',
+              dynamicDescription: parts[2]?.trim() || undefined,
+              narration: parts[3]?.trim() || undefined,
               nextIndex: startIndex + 1
             }
           }
           // If sequence is not a number, try to use line number
-          if (promptParts.length > 0 || sequence.trim()) {
+          if (parts.length > 0 && parts[0].trim()) {
             return {
-              sequence: startIndex - currentIndex + 1, // Calculate sequence based on position
-              prompt: startLine.trim(),
+              sequence: startIndex - currentIndex + 1,
+              prompt: parts[0]?.trim() || '',
+              dynamicDescription: parts[1]?.trim() || undefined,
+              narration: parts[2]?.trim() || undefined,
               nextIndex: startIndex + 1
             }
           }
@@ -531,13 +547,15 @@ export default function ScriptLibrary() {
           parts.push(current.trim())
         }
 
-        // Extract sequence and prompt
+        // Extract sequence, prompt, dynamic description and narration
         if (parts.length >= 2) {
           const seqNum = parseInt(parts[0])
           if (!isNaN(seqNum)) {
             return {
               sequence: seqNum,
-              prompt: parts.slice(1).join(',').trim(),
+              prompt: parts[1] || '',
+              dynamicDescription: parts[2] || undefined,
+              narration: parts[3] || undefined,
               nextIndex: lineIdx + 1
             }
           }
@@ -546,6 +564,8 @@ export default function ScriptLibrary() {
           return {
             sequence: result.length + 1,
             prompt: parts[0],
+            dynamicDescription: undefined,
+            narration: undefined,
             nextIndex: lineIdx + 1
           }
         }
@@ -566,7 +586,9 @@ export default function ScriptLibrary() {
           // Format sequence as padded string for frontend display
           result.push({
             sequence: String(parsed.sequence).padStart(3, '0'),
-            prompt: parsed.prompt
+            prompt: parsed.prompt,
+            dynamicDescription: parsed.dynamicDescription,
+            narration: parsed.narration
           })
           currentIndex = parsed.nextIndex
         } else {
@@ -1431,7 +1453,9 @@ export default function ScriptLibrary() {
                 <thead className="sticky top-0 bg-white border-b">
                   <tr>
                     <th className="text-left p-2 w-20">序号</th>
-                    <th className="text-left p-2">分镜描述</th>
+                    <th className="text-left p-2">镜头描述</th>
+                    <th className="text-left p-2">动态描述</th>
+                    <th className="text-left p-2">旁白/对话</th>
                     {isEditingPreview && <th className="w-20">操作</th>}
                   </tr>
                 </thead>
@@ -1465,6 +1489,40 @@ export default function ScriptLibrary() {
                           />
                         ) : (
                           <div className="whitespace-pre-wrap break-words">{frame.prompt}</div>
+                        )}
+                      </td>
+                      <td className="p-2">
+                        {isEditingPreview ? (
+                          <textarea
+                            value={frame.dynamicDescription || ''}
+                            onChange={(e) => handleUpdateFrame(index, 'dynamicDescription', e.target.value)}
+                            className="w-full px-2 py-1 border rounded resize-none whitespace-pre-wrap"
+                            style={{ minHeight: '3em', height: 'auto' }}
+                            onInput={(e) => {
+                              const target = e.target as HTMLTextAreaElement
+                              target.style.height = 'auto'
+                              target.style.height = target.scrollHeight + 'px'
+                            }}
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap break-words">{frame.dynamicDescription || ''}</div>
+                        )}
+                      </td>
+                      <td className="p-2">
+                        {isEditingPreview ? (
+                          <textarea
+                            value={frame.narration || ''}
+                            onChange={(e) => handleUpdateFrame(index, 'narration', e.target.value)}
+                            className="w-full px-2 py-1 border rounded resize-none whitespace-pre-wrap"
+                            style={{ minHeight: '3em', height: 'auto' }}
+                            onInput={(e) => {
+                              const target = e.target as HTMLTextAreaElement
+                              target.style.height = 'auto'
+                              target.style.height = target.scrollHeight + 'px'
+                            }}
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap break-words">{frame.narration || ''}</div>
                         )}
                       </td>
                       {isEditingPreview && (

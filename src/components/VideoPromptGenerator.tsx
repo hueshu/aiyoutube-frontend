@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown, Users, RefreshCw } from 'lucide-react';
+import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown, Users, RefreshCw, Link, Unlink } from 'lucide-react';
 import { API_URL } from '../config/api';
 
 interface ImagePrompt {
@@ -13,6 +13,8 @@ interface ImagePrompt {
   isProcessing: boolean;
   isTranslating?: boolean;
   error?: string;
+  upLink?: string;    // ID of the image linked upward (this as tail frame)
+  downLink?: string;  // ID of the image linked downward (this as head frame)
 }
 
 const GEMINI_API_KEY = 'AIzaSyDwD04ZVY2ff7nWdjZNTJK4sgy5nyYwbLA';
@@ -402,6 +404,77 @@ const VideoPromptGenerator: React.FC = () => {
     }
   };
 
+  // Generate prompt for paired images (head and tail frames)
+  const generatePromptForPairedImages = async (headImage: ImagePrompt, tailImage: ImagePrompt) => {
+    try {
+      const base64HeadImage = await fileToBase64(headImage.file);
+      const base64TailImage = await fileToBase64(tailImage.file);
+
+      const pairedPrompt = '这两张图作为首尾帧。第一个图作为首帧，第二个图作为尾帧。就是从第一个图的状态，运镜变化到第二个图的状态。';
+
+      const requestBody = {
+        contents: [
+          {
+            parts: [
+              {
+                text: SYSTEM_PROMPT + `\n\n补充说明：${pairedPrompt}`
+              },
+              {
+                inline_data: {
+                  mime_type: headImage.file.type,
+                  data: base64HeadImage
+                }
+              },
+              {
+                inline_data: {
+                  mime_type: tailImage.file.type,
+                  data: base64TailImage
+                }
+              },
+              {
+                text: "请分析这两张图片，生成适合图转视频的提示词，描述从第一张图到第二张图的运镜变化。"
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          temperature: 0.7,
+          topP: 0.95,
+          topK: 40,
+          maxOutputTokens: 8192,
+          candidateCount: 1
+        }
+      };
+
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': GEMINI_API_KEY
+          },
+          body: JSON.stringify(requestBody)
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('API Error Response:', errorData);
+        throw new Error(`API request failed: ${response.status} - ${JSON.stringify(errorData)}`);
+      }
+
+      const data = await response.json();
+      console.log('API Response for paired images:', data);
+      const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      console.log('Extracted text:', generatedText);
+      return generatedText.trim();
+    } catch (error) {
+      console.error('Error generating prompt for paired images:', error);
+      throw error;
+    }
+  };
+
   // Helper function to get auth token
   const getAuthToken = () => {
     return localStorage.getItem('token') || '';
@@ -495,56 +568,179 @@ const VideoPromptGenerator: React.FC = () => {
     }
   };
 
-  // Process single image (regenerate)
+  // Link image downward (this image as head frame, target as tail frame)
+  const linkImageDown = (imageId: string) => {
+    const currentIndex = images.findIndex(img => img.id === imageId);
+    if (currentIndex === -1 || currentIndex >= images.length - 1) return;
+
+    const targetImage = images[currentIndex + 1];
+
+    setImages(prev => prev.map(img => {
+      if (img.id === imageId) {
+        return { ...img, downLink: targetImage.id };
+      }
+      if (img.id === targetImage.id) {
+        return { ...img, upLink: imageId };
+      }
+      return img;
+    }));
+  };
+
+  // Unlink image downward
+  const unlinkImageDown = (imageId: string) => {
+    const image = images.find(img => img.id === imageId);
+    if (!image || !image.downLink) return;
+
+    const targetId = image.downLink;
+
+    setImages(prev => prev.map(img => {
+      if (img.id === imageId) {
+        return { ...img, downLink: undefined };
+      }
+      if (img.id === targetId) {
+        return { ...img, upLink: undefined };
+      }
+      return img;
+    }));
+  };
+
+  // Link image upward (this image as tail frame, target as head frame)
+  const linkImageUp = (imageId: string) => {
+    const currentIndex = images.findIndex(img => img.id === imageId);
+    if (currentIndex === -1 || currentIndex === 0) return;
+
+    const targetImage = images[currentIndex - 1];
+
+    setImages(prev => prev.map(img => {
+      if (img.id === imageId) {
+        return { ...img, upLink: targetImage.id };
+      }
+      if (img.id === targetImage.id) {
+        return { ...img, downLink: imageId };
+      }
+      return img;
+    }));
+  };
+
+  // Unlink image upward
+  const unlinkImageUp = (imageId: string) => {
+    const image = images.find(img => img.id === imageId);
+    if (!image || !image.upLink) return;
+
+    const targetId = image.upLink;
+
+    setImages(prev => prev.map(img => {
+      if (img.id === imageId) {
+        return { ...img, upLink: undefined };
+      }
+      if (img.id === targetId) {
+        return { ...img, downLink: undefined };
+      }
+      return img;
+    }))
+  };
+
+  // Process single image or paired images (regenerate)
   const handleRegeneratePrompt = async (imageId: string) => {
     const image = images.find(img => img.id === imageId);
     if (!image) return;
 
-    setImages(prev => prev.map(img =>
-      img.id === imageId ? { ...img, isProcessing: true, error: undefined } : img
-    ));
+    // Check if this is a paired image
+    const isPaired = !!image.downLink;
+    const tailImage = isPaired ? images.find(img => img.id === image.downLink) : null;
+
+    // Set both images as processing if paired
+    if (isPaired && tailImage) {
+      setImages(prev => prev.map(img =>
+        (img.id === imageId || img.id === tailImage.id)
+          ? { ...img, isProcessing: true, error: undefined }
+          : img
+      ));
+    } else {
+      setImages(prev => prev.map(img =>
+        img.id === imageId ? { ...img, isProcessing: true, error: undefined } : img
+      ));
+    }
 
     try {
-      const prompt = await generatePromptForImage(image);
+      let prompt: string;
+      if (isPaired && tailImage) {
+        // Generate for paired images
+        prompt = await generatePromptForPairedImages(image, tailImage);
+      } else {
+        // Generate for single image
+        prompt = await generatePromptForImage(image);
+      }
+
+      // Update generated prompt for head image (single or paired)
       setImages(prev => prev.map(img =>
         img.id === imageId
           ? { ...img, generatedPrompt: prompt, isProcessing: false }
+          : (isPaired && img.id === tailImage?.id)
+          ? { ...img, isProcessing: false }
           : img
       ));
     } catch (error) {
       setImages(prev => prev.map(img =>
-        img.id === imageId
+        (img.id === imageId || (isPaired && img.id === tailImage?.id))
           ? { ...img, error: '生成失败', isProcessing: false }
           : img
       ));
     }
   };
 
-  // Process all images
+  // Process all images (handle both single and paired)
   const handleProcessAll = async () => {
     setIsProcessingAll(true);
 
     // Process images one by one to avoid rate limits
+    // Skip tail frames as they are processed with their head frames
     for (let i = 0; i < images.length; i++) {
       const image = images[i];
+
+      // Skip tail frames (have upLink but no downLink)
+      if (image.upLink && !image.downLink) continue;
+
       // 如果没有从脚本导入，并且已有生成内容，则跳过
       // 如果从脚本导入了，则强制重新生成（使用补充提示）
       if (!hasImportedFromScript && image.generatedPrompt) continue;
 
-      setImages(prev => prev.map(img =>
-        img.id === image.id ? { ...img, isProcessing: true } : img
-      ));
+      const isPaired = !!image.downLink;
+      const tailImage = isPaired ? images.find(img => img.id === image.downLink) : null;
+
+      // Set processing state
+      if (isPaired && tailImage) {
+        setImages(prev => prev.map(img =>
+          (img.id === image.id || img.id === tailImage.id)
+            ? { ...img, isProcessing: true }
+            : img
+        ));
+      } else {
+        setImages(prev => prev.map(img =>
+          img.id === image.id ? { ...img, isProcessing: true } : img
+        ));
+      }
 
       try {
-        const prompt = await generatePromptForImage(image);
+        let prompt: string;
+        if (isPaired && tailImage) {
+          // Generate for paired images
+          prompt = await generatePromptForPairedImages(image, tailImage);
+        } else {
+          // Generate for single image
+          prompt = await generatePromptForImage(image);
+        }
+
         setImages(prev => prev.map(img =>
           img.id === image.id
             ? { ...img, generatedPrompt: prompt, isProcessing: false }
+            : (isPaired && img.id === tailImage?.id)
+            ? { ...img, isProcessing: false }
             : img
         ));
       } catch (error) {
         setImages(prev => prev.map(img =>
-          img.id === image.id
+          (img.id === image.id || (isPaired && img.id === tailImage?.id))
             ? { ...img, error: '生成失败', isProcessing: false }
             : img
         ));
@@ -973,22 +1169,120 @@ const VideoPromptGenerator: React.FC = () => {
 
         {/* Image Cards */}
         <div className="grid grid-cols-1 gap-3">
-          {images.map(image => (
+          {images.map(image => {
+            // Skip images that are tail frames in a pair (have upLink but are not also head frames)
+            if (image.upLink && !image.downLink) {
+              return null;
+            }
+
+            // Check if this is a paired image (head frame)
+            const isPaired = !!image.downLink;
+            const tailImage = isPaired ? images.find(img => img.id === image.downLink) : null;
+
+            return (
             <div key={image.id} className="bg-white rounded-lg shadow-sm p-4">
               {/* Compact layout - all in one row */}
               <div className="flex gap-4">
-                {/* Image preview - fixed size */}
-                <div className="relative flex-shrink-0 w-[300px] h-[200px] bg-gray-100 rounded-lg overflow-hidden">
-                  <img
-                    src={image.preview}
-                    alt={image.name}
-                    className="w-full h-full object-contain"
-                  />
-                  {image.isProcessing && (
-                    <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                      <Loader className="w-8 h-8 text-white animate-spin" />
+                {/* Image preview section - single or paired */}
+                {isPaired && tailImage ? (
+                  // Paired images - show both
+                  <div className="flex-shrink-0 flex gap-2">
+                    <div className="relative w-[145px] h-[200px] bg-gray-100 rounded-lg overflow-hidden">
+                      <img
+                        src={image.preview}
+                        alt={image.name}
+                        className="w-full h-full object-contain"
+                      />
+                      <div className="absolute bottom-1 left-1 bg-blue-500 text-white text-xs px-2 py-0.5 rounded">
+                        首帧
+                      </div>
+                      {image.isProcessing && (
+                        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                          <Loader className="w-6 h-6 text-white animate-spin" />
+                        </div>
+                      )}
                     </div>
-                  )}
+                    <div className="relative w-[145px] h-[200px] bg-gray-100 rounded-lg overflow-hidden">
+                      <img
+                        src={tailImage.preview}
+                        alt={tailImage.name}
+                        className="w-full h-full object-contain"
+                      />
+                      <div className="absolute bottom-1 left-1 bg-purple-500 text-white text-xs px-2 py-0.5 rounded">
+                        尾帧
+                      </div>
+                      {tailImage.isProcessing && (
+                        <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                          <Loader className="w-6 h-6 text-white animate-spin" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  // Single image
+                  <div className="relative flex-shrink-0 w-[300px] h-[200px] bg-gray-100 rounded-lg overflow-hidden">
+                    <img
+                      src={image.preview}
+                      alt={image.name}
+                      className="w-full h-full object-contain"
+                    />
+                    {image.isProcessing && (
+                      <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                        <Loader className="w-8 h-8 text-white animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Link buttons - vertical layout */}
+                <div className="flex flex-col justify-center gap-2">
+                  {/* Link Up button */}
+                  {(() => {
+                    const currentIndex = images.findIndex(img => img.id === image.id);
+                    const canLinkUp = currentIndex > 0;
+                    const hasUpLink = !!image.upLink;
+
+                    return (
+                      <button
+                        onClick={() => hasUpLink ? unlinkImageUp(image.id) : linkImageUp(image.id)}
+                        disabled={!canLinkUp && !hasUpLink}
+                        className={`p-2 rounded ${
+                          hasUpLink
+                            ? 'bg-blue-500 text-white hover:bg-blue-600'
+                            : canLinkUp
+                            ? 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        }`}
+                        title={hasUpLink ? '取消向上关联' : '向上关联'}
+                      >
+                        {hasUpLink ? <Unlink className="w-4 h-4" /> : <Link className="w-4 h-4 rotate-[-45deg]" />}
+                      </button>
+                    );
+                  })()}
+
+                  {/* Link Down button */}
+                  {(() => {
+                    const currentIndex = images.findIndex(img => img.id === image.id);
+                    const canLinkDown = currentIndex < images.length - 1;
+                    const hasDownLink = !!image.downLink;
+
+                    return (
+                      <button
+                        onClick={() => hasDownLink ? unlinkImageDown(image.id) : linkImageDown(image.id)}
+                        disabled={!canLinkDown && !hasDownLink}
+                        className={`p-2 rounded ${
+                          hasDownLink
+                            ? 'bg-blue-500 text-white hover:bg-blue-600'
+                            : canLinkDown
+                            ? 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                            : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                        }`}
+                        title={hasDownLink ? '取消向下关联' : '向下关联'}
+                      >
+                        {hasDownLink ? <Unlink className="w-4 h-4" /> : <Link className="w-4 h-4 rotate-[45deg]" />}
+                      </button>
+                    );
+                  })()}
                 </div>
 
                 {/* Content section - takes remaining space */}
@@ -996,7 +1290,16 @@ const VideoPromptGenerator: React.FC = () => {
                   {/* Header with name and action buttons */}
                   <div className="flex items-center justify-between mb-2">
                     <h3 className="text-sm font-semibold text-gray-900 truncate">
-                      {image.name}
+                      {isPaired && tailImage ? (
+                        <span>
+                          <span className="text-blue-600">{image.name}</span>
+                          {' → '}
+                          <span className="text-purple-600">{tailImage.name}</span>
+                          <span className="ml-2 text-xs text-gray-500 font-normal">(配对)</span>
+                        </span>
+                      ) : (
+                        image.name
+                      )}
                     </h3>
                     <div className="flex items-center gap-2">
                       <button
@@ -1037,13 +1340,20 @@ const VideoPromptGenerator: React.FC = () => {
                     {/* Supplement prompt */}
                     <div className="w-[200px]">
                       <label className="block text-xs font-medium text-gray-700 mb-1">
-                        补充提示（可选）
+                        补充提示（{isPaired ? '配对固定提示' : '可选'}）
                       </label>
                       <textarea
-                        value={image.supplementPrompt}
-                        onChange={(e) => updateSupplementPrompt(image.id, e.target.value)}
-                        placeholder="输入额外的描述或要求..."
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                        value={isPaired ? '这两张图作为首尾帧。第一个图作为首帧，第二个图作为尾帧。就是从第一个图的状态，运镜变化到第二个图的状态。' : image.supplementPrompt}
+                        onChange={(e) => {
+                          if (!isPaired) {
+                            updateSupplementPrompt(image.id, e.target.value);
+                          }
+                        }}
+                        placeholder={isPaired ? '' : '输入额外的描述或要求...'}
+                        readOnly={isPaired}
+                        className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none ${
+                          isPaired ? 'border-blue-300 bg-blue-50 cursor-default' : 'border-gray-300'
+                        }`}
                         rows={5}
                       />
                     </div>
@@ -1172,7 +1482,8 @@ const VideoPromptGenerator: React.FC = () => {
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Empty state */}
