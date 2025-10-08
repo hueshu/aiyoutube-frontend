@@ -88,7 +88,7 @@ const CharacterImage: React.FC = () => {
   ): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = document.createElement('img');
-      img.crossOrigin = 'anonymous';
+      // 本地blob URL不需要CORS设置
 
       img.onload = () => {
         try {
