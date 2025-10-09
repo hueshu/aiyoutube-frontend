@@ -21,6 +21,7 @@ const CharacterImage: React.FC = () => {
   const [uploadedImage, setUploadedImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [selectedSize, setSelectedSize] = useState<string>('[1:1]');
+  const [selectedModel, setSelectedModel] = useState<string>('yunwu');
   const [selectedView, setSelectedView] = useState<ViewType>('front');
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [enableTranslation, setEnableTranslation] = useState<boolean>(true); // 默认开启翻译
@@ -66,6 +67,11 @@ const CharacterImage: React.FC = () => {
       }
     };
   }, [isTranslating, isGenerating]);
+
+  const modelOptions = [
+    { value: 'yunwu', label: '云雾AI', model: 'gemini-2.5-flash-image-preview' },
+    { value: 'google', label: 'Google官方', model: 'gemini-2.5-flash-image' },
+  ];
 
   const sizeOptions = [
     { value: '[1:1]', label: '1:1 (正方形)' },
@@ -385,13 +391,19 @@ const CharacterImage: React.FC = () => {
 
       // 7. 提交请求（使用翻译后的prompt）
       console.log('\n=== 步骤7: 提交生成请求 ===');
+      const selectedModelOption = modelOptions.find(m => m.value === selectedModel);
+      const modelName = selectedModelOption?.model || 'gemini-2.5-flash-image-preview';
+
       const requestBody = {
         prompt: finalPrompt,  // 使用翻译后的prompt
         image_size: selectedSize,
-        model: 'gemini-2.5-flash-image-preview',
+        model: modelName,
+        model_type: selectedModel,  // 新增：模型类型（yunwu/google）
         character_image_urls: [paddedImageUrl]  // 提交URL数组
       };
 
+      console.log('选择的模型类型:', selectedModel);
+      console.log('模型名称:', modelName);
       console.log('请求体:', JSON.stringify(requestBody, null, 2));
 
       const response = await fetch(`${API_URL}/generation/single`, {
@@ -623,6 +635,22 @@ const CharacterImage: React.FC = () => {
                   {sizeOptions.map(option => (
                     <option key={option.value} value={option.value}>
                       {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* 选择模型 */}
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">选择模型</h2>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {modelOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label} ({option.model})
                     </option>
                   ))}
                 </select>
