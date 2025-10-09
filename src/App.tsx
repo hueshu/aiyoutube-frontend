@@ -6,6 +6,7 @@ import Dashboard from './components/Dashboard'
 import ScriptLibrary from './components/ScriptLibrary'
 import CharacterLibrary from './components/CharacterLibrary'
 import MusicLibrary from './components/MusicLibrary'
+import BenchmarkVideoLibrary from './components/BenchmarkVideoLibrary'
 import StoryboardWorkspace from './components/StoryboardWorkspace'
 import ProjectsManager from './components/ProjectsManager'
 import AdminPanel from './components/AdminPanel'
@@ -55,6 +56,7 @@ function App() {
             <Route path="/scripts" element={<ScriptLibrary />} />
             <Route path="/characters" element={<CharacterLibrary />} />
             <Route path="/music" element={<MusicLibrary />} />
+            <Route path="/benchmark-videos" element={<BenchmarkVideoLibrary />} />
             <Route path="/workspace" element={<StoryboardWorkspace />} />
             <Route path="/character-image" element={<CharacterImage />} />
             <Route path="/projects" element={<ProjectsManager />} />

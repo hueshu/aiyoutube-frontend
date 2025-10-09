@@ -23,19 +23,21 @@ const CharacterImage: React.FC = () => {
   const [selectedSize, setSelectedSize] = useState<string>('[1:1]');
   const [selectedModel, setSelectedModel] = useState<string>('yunwu');
   const [selectedView, setSelectedView] = useState<ViewType>('front');
-  const [customPrompt, setCustomPrompt] = useState<string>('');
+  const [customPrompt, setCustomPrompt] = useState<string>('全身图，修改成正常人，正常表情，双手下垂，纯色背景');
   const [enableTranslation, setEnableTranslation] = useState<boolean>(true); // 默认开启翻译
   const [isTranslating, setIsTranslating] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string>('');
   const [history, setHistory] = useState<GenerationHistory[]>([]);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [isDragging, setIsDragging] = useState(false);
 
   // 合并图片状态
   const [mergeImages, setMergeImages] = useState<File[]>([]);
   const [mergePreviews, setMergePreviews] = useState<string[]>([]);
   const [mergedImageUrl, setMergedImageUrl] = useState<string>('');
   const [isMerging, setIsMerging] = useState(false);
+  const [isMergeDragging, setIsMergeDragging] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mergeInputRef = useRef<HTMLInputElement>(null);
@@ -259,6 +261,68 @@ const CharacterImage: React.FC = () => {
     }
   };
 
+  // 处理文件（用于拖拽和粘贴）
+  const handleFile = (file: File) => {
+    if (file && file.type.startsWith('image/')) {
+      setUploadedImage(file);
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+      setGeneratedImage('');
+    }
+  };
+
+  // 拖拽处理
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files[0]) {
+      handleFile(files[0]);
+    }
+  };
+
+  // 粘贴处理
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') !== -1) {
+            const file = items[i].getAsFile();
+            if (file) {
+              handleFile(file);
+            }
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => {
+      window.removeEventListener('paste', handlePaste);
+    };
+  }, []);
+
   // 处理视图类型选择
   const handleViewChange = (view: ViewType) => {
     setSelectedView(view);
@@ -424,6 +488,13 @@ const CharacterImage: React.FC = () => {
         // Gemini同步模式成功
         setGeneratedImage(data.image_url);
 
+        // 如果有debugLogs，打印出来
+        if (data.debugLogs && data.debugLogs.length > 0) {
+          console.log('\n========== Debug Logs from Backend ==========');
+          data.debugLogs.forEach((log: string) => console.log(log));
+          console.log('==========================================\n');
+        }
+
         // 添加到历史记录（保存原始prompt）
         const historyItem: GenerationHistory = {
           id: Date.now().toString(),
@@ -440,7 +511,23 @@ const CharacterImage: React.FC = () => {
           status: response.status,
           data: data
         });
-        const errorMsg = data.message || data.error || `服务器错误 (${response.status})`;
+
+        // 打印详细的错误日志
+        if (data.debugLogs && data.debugLogs.length > 0) {
+          console.error('\n========== Debug Logs from Backend ==========');
+          data.debugLogs.forEach((log: string) => console.error(log));
+          console.error('==========================================\n');
+        }
+
+        // 构建详细的错误消息
+        let errorMsg = data.message || data.error || `服务器错误 (${response.status})`;
+
+        // 如果有debugLogs，添加到错误消息中
+        if (data.debugLogs && data.debugLogs.length > 0) {
+          errorMsg += '\n\n详细日志（请查看浏览器控制台）：\n' +
+                      data.debugLogs.slice(-5).join('\n');  // 只显示最后5条
+        }
+
         alert('生成失败: ' + errorMsg);
       }
 
@@ -466,6 +553,78 @@ const CharacterImage: React.FC = () => {
     setMergePreviews(previews);
     setMergedImageUrl(''); // 清空之前的合并结果
   };
+
+  // 处理合并图片文件（用于拖拽和粘贴）
+  const handleMergeFiles = (files: FileList | File[]) => {
+    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+
+    // 累加而不是覆盖
+    setMergeImages(prev => [...prev, ...imageFiles]);
+
+    // 生成预览
+    const newPreviews = imageFiles.map(file => URL.createObjectURL(file));
+    setMergePreviews(prev => [...prev, ...newPreviews]);
+    setMergedImageUrl('');
+  };
+
+  // 合并图片拖拽处理
+  const handleMergeDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsMergeDragging(true);
+  };
+
+  const handleMergeDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsMergeDragging(false);
+  };
+
+  const handleMergeDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleMergeDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsMergeDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files) {
+      handleMergeFiles(files);
+    }
+  };
+
+  // 合并图片粘贴处理
+  useEffect(() => {
+    const handleMergePaste = (e: ClipboardEvent) => {
+      // 只在合并选项卡时处理粘贴
+      if (activeTab !== 'merge') return;
+
+      const items = e.clipboardData?.items;
+      if (items) {
+        const imageFiles: File[] = [];
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') !== -1) {
+            const file = items[i].getAsFile();
+            if (file) {
+              imageFiles.push(file);
+            }
+          }
+        }
+        if (imageFiles.length > 0) {
+          handleMergeFiles(imageFiles);
+        }
+      }
+    };
+
+    window.addEventListener('paste', handleMergePaste);
+    return () => {
+      window.removeEventListener('paste', handleMergePaste);
+    };
+  }, [activeTab]);
 
   // 合并图片
   const handleMergeImages = async () => {
@@ -512,14 +671,14 @@ const CharacterImage: React.FC = () => {
         currentX += scaledWidth;
       });
 
-      // 转换为blob URL
+      // 转换为blob URL（使用JPG压缩，质量95%）
       canvas.toBlob((blob) => {
         if (blob) {
           const url = URL.createObjectURL(blob);
           setMergedImageUrl(url);
         }
         setIsMerging(false);
-      }, 'image/png');
+      }, 'image/jpeg', 0.95);
     } catch (error) {
       console.error('Merge error:', error);
       alert('合并失败，请稍后重试');
@@ -533,7 +692,7 @@ const CharacterImage: React.FC = () => {
 
     const link = document.createElement('a');
     link.href = mergedImageUrl;
-    link.download = `merged_${Date.now()}.png`;
+    link.download = `merged_${Date.now()}.jpg`;
     link.click();
   };
 
@@ -599,10 +758,23 @@ const CharacterImage: React.FC = () => {
                 {!previewUrl ? (
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full border-2 border-dashed border-gray-300 rounded-lg p-8 hover:border-blue-400 transition-colors"
+                    onDragEnter={handleDragEnter}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    className={`w-full border-2 border-dashed rounded-lg p-8 transition-colors ${
+                      isDragging
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-300 hover:border-blue-400'
+                    }`}
                   >
-                    <Upload className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-600">点击上传图片</p>
+                    <Upload className={`w-12 h-12 mx-auto mb-2 ${
+                      isDragging ? 'text-blue-500' : 'text-gray-400'
+                    }`} />
+                    <p className="text-sm text-gray-600">
+                      {isDragging ? '松开鼠标上传' : '点击、拖拽或粘贴图片'}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">支持 Ctrl+V 粘贴</p>
                   </button>
                 ) : (
                   <div className="relative">
@@ -708,8 +880,20 @@ const CharacterImage: React.FC = () => {
               {/* 生成按钮 */}
               <button
                 onClick={handleGenerate}
-                disabled={isTranslating || isGenerating || !uploadedImage}
-                className="w-full px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                disabled={isTranslating || isGenerating}
+                className={`w-full px-6 py-3 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                  isDragging
+                    ? 'bg-blue-600 border-2 border-blue-400 border-dashed'
+                    : isTranslating || isGenerating
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : !uploadedImage
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : 'bg-blue-500 hover:bg-blue-600'
+                } text-white`}
               >
                 {isTranslating ? (
                   <>
@@ -721,10 +905,15 @@ const CharacterImage: React.FC = () => {
                     <Loader className="w-5 h-5 animate-spin" />
                     生成中... {elapsedSeconds}秒
                   </>
+                ) : isDragging ? (
+                  <>
+                    <Upload className="w-5 h-5" />
+                    松开鼠标上传图片
+                  </>
                 ) : (
                   <>
                     <ImageIcon className="w-5 h-5" />
-                    生成图片
+                    生成图片（可拖拽/粘贴图片）
                   </>
                 )}
               </button>
@@ -770,11 +959,13 @@ const CharacterImage: React.FC = () => {
                     {history.map(item => (
                       <div key={item.id} className="border border-gray-200 rounded-lg p-3">
                         <div className="flex gap-3 mb-2">
-                          <img
-                            src={item.inputImage}
-                            alt="Input"
-                            className="w-20 h-20 object-cover rounded"
-                          />
+                          <div className="w-20 h-20 flex items-center justify-center bg-gray-50 rounded border border-gray-200 flex-shrink-0">
+                            <img
+                              src={item.inputImage}
+                              alt="Input"
+                              className="max-w-full max-h-full object-contain"
+                            />
+                          </div>
                           <div className="flex-1">
                             <p className="text-xs text-gray-500 mb-1">
                               {new Date(item.timestamp).toLocaleString()}
@@ -783,12 +974,16 @@ const CharacterImage: React.FC = () => {
                             <p className="text-xs text-gray-500 mt-1">尺寸: {item.size}</p>
                           </div>
                         </div>
-                        <img
-                          src={item.outputImage}
-                          alt="Output"
-                          className="w-full h-32 object-cover rounded cursor-pointer hover:opacity-80"
+                        <div
+                          className="w-full h-32 flex items-center justify-center bg-gray-50 rounded border border-gray-200 cursor-pointer hover:bg-gray-100"
                           onClick={() => window.open(item.outputImage, '_blank')}
-                        />
+                        >
+                          <img
+                            src={item.outputImage}
+                            alt="Output"
+                            className="max-w-full max-h-full object-contain"
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -816,10 +1011,23 @@ const CharacterImage: React.FC = () => {
 
               <button
                 onClick={() => mergeInputRef.current?.click()}
-                className="w-full border-2 border-dashed border-gray-300 rounded-lg p-8 hover:border-blue-400 transition-colors mb-4"
+                onDragEnter={handleMergeDragEnter}
+                onDragOver={handleMergeDragOver}
+                onDragLeave={handleMergeDragLeave}
+                onDrop={handleMergeDrop}
+                className={`w-full border-2 border-dashed rounded-lg p-8 transition-colors mb-4 ${
+                  isMergeDragging
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-300 hover:border-blue-400'
+                }`}
               >
-                <Upload className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                <p className="text-sm text-gray-600">点击上传多张图片</p>
+                <Upload className={`w-12 h-12 mx-auto mb-2 ${
+                  isMergeDragging ? 'text-blue-500' : 'text-gray-400'
+                }`} />
+                <p className="text-sm text-gray-600">
+                  {isMergeDragging ? '松开鼠标上传' : '点击、拖拽或粘贴多张图片'}
+                </p>
+                <p className="text-xs text-gray-400 mt-1">支持 Ctrl+V 粘贴</p>
               </button>
 
               {mergePreviews.length > 0 && (
@@ -827,12 +1035,13 @@ const CharacterImage: React.FC = () => {
                   <p className="text-sm text-gray-600 mb-3">已上传 {mergePreviews.length} 张图片</p>
                   <div className="grid grid-cols-3 gap-3 mb-4">
                     {mergePreviews.map((url, index) => (
-                      <img
-                        key={index}
-                        src={url}
-                        alt={`Preview ${index + 1}`}
-                        className="w-full h-24 object-cover rounded border border-gray-200"
-                      />
+                      <div key={index} className="w-full h-24 flex items-center justify-center bg-gray-50 rounded border border-gray-200">
+                        <img
+                          src={url}
+                          alt={`Preview ${index + 1}`}
+                          className="max-w-full max-h-full object-contain"
+                        />
+                      </div>
                     ))}
                   </div>
 

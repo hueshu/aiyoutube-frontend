@@ -32,6 +32,7 @@ const Navigation: React.FC = () => {
     { path: '/scripts', label: '脚本库', icon: FileText },
     { path: '/characters', label: '角色库', icon: Users },
     { path: '/music', label: '音乐库', icon: Music },
+    { path: '/benchmark-videos', label: '对标视频库', icon: Video },
   ];
 
   if (user?.role === 'admin') {
