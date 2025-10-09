@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Download, Image as ImageIcon, Loader, X } from 'lucide-react';
 import { API_URL } from '../config/api';
 
@@ -28,6 +28,7 @@ const CharacterImage: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string>('');
   const [history, setHistory] = useState<GenerationHistory[]>([]);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
 
   // 合并图片状态
   const [mergeImages, setMergeImages] = useState<File[]>([]);
@@ -37,6 +38,34 @@ const CharacterImage: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mergeInputRef = useRef<HTMLInputElement>(null);
+  const timerRef = useRef<number | null>(null);
+
+  // 计时器效果
+  useEffect(() => {
+    if (isTranslating || isGenerating) {
+      // 重置计时器
+      setElapsedSeconds(0);
+
+      // 启动计时器
+      timerRef.current = window.setInterval(() => {
+        setElapsedSeconds(prev => prev + 1);
+      }, 1000);
+    } else {
+      // 清除计时器
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+      setElapsedSeconds(0);
+    }
+
+    // 组件卸载时清除计时器
+    return () => {
+      if (timerRef.current !== null) {
+        window.clearInterval(timerRef.current);
+      }
+    };
+  }, [isTranslating, isGenerating]);
 
   const sizeOptions = [
     { value: '[1:1]', label: '1:1 (正方形)' },
@@ -657,12 +686,12 @@ const CharacterImage: React.FC = () => {
                 {isTranslating ? (
                   <>
                     <Loader className="w-5 h-5 animate-spin" />
-                    翻译中...
+                    翻译中... {elapsedSeconds}秒
                   </>
                 ) : isGenerating ? (
                   <>
                     <Loader className="w-5 h-5 animate-spin" />
-                    生成中...
+                    生成中... {elapsedSeconds}秒
                   </>
                 ) : (
                   <>
