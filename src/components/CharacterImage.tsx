@@ -65,12 +65,22 @@ const CharacterImage: React.FC = () => {
     blob: Blob,
     ratio: string
   ): Promise<string> => {
+    console.log('[Upload] 开始上传padding后的图片');
+    console.log('[Upload] Blob大小:', blob.size, 'bytes');
+    console.log('[Upload] Blob类型:', blob.type);
+    console.log('[Upload] 目标比例:', ratio);
+
     const formData = new FormData();
     const timestamp = Date.now();
-    formData.append('file', blob, `temp_padded_${ratio}_${timestamp}.jpg`);
+    const filename = `temp_padded_${ratio}_${timestamp}.jpg`;
+
+    formData.append('file', blob, filename);
     formData.append('character_id', '0'); // 临时图片使用0
     formData.append('ratio', ratio);
     formData.append('original_filename', `temp_${timestamp}.jpg`);
+
+    console.log('[Upload] 文件名:', filename);
+    console.log('[Upload] 上传到:', `${API_URL}/characters/padded-image`);
 
     const response = await fetch(`${API_URL}/characters/padded-image`, {
       method: 'POST',
@@ -80,11 +90,16 @@ const CharacterImage: React.FC = () => {
       body: formData
     });
 
+    console.log('[Upload] 响应状态:', response.status);
+
     if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Upload] 上传失败:', response.status, errorText);
       throw new Error(`Failed to upload padded image: ${response.status}`);
     }
 
     const data = await response.json();
+    console.log('[Upload] 上传成功, URL:', data.image_url);
     return data.image_url;
   };
 
@@ -103,6 +118,10 @@ const CharacterImage: React.FC = () => {
     imageUrl: string,
     targetRatio: { width: number; height: number }
   ): Promise<Blob> => {
+    console.log('[Padding] 开始padding处理');
+    console.log('[Padding] 目标比例:', targetRatio);
+    console.log('[Padding] 图片URL:', imageUrl);
+
     return new Promise((resolve, reject) => {
       const img = document.createElement('img');
       // 本地blob URL不需要CORS设置
@@ -111,8 +130,11 @@ const CharacterImage: React.FC = () => {
         try {
           const srcWidth = img.width;
           const srcHeight = img.height;
+          console.log('[Padding] 原始图片尺寸:', { width: srcWidth, height: srcHeight });
+
           const srcRatio = srcWidth / srcHeight;
           const targetRatioValue = targetRatio.width / targetRatio.height;
+          console.log('[Padding] 原始比例:', srcRatio, '目标比例:', targetRatioValue);
 
           let canvasWidth: number;
           let canvasHeight: number;
@@ -123,11 +145,16 @@ const CharacterImage: React.FC = () => {
             canvasWidth = srcWidth;
             canvasHeight = Math.round(srcWidth / targetRatioValue);
             offsetY = Math.round((canvasHeight - srcHeight) / 2);
+            console.log('[Padding] 需要上下padding, offsetY:', offsetY);
           } else {
             canvasHeight = srcHeight;
             canvasWidth = Math.round(srcHeight * targetRatioValue);
             offsetX = Math.round((canvasWidth - srcWidth) / 2);
+            console.log('[Padding] 需要左右padding, offsetX:', offsetX);
           }
+
+          console.log('[Padding] Canvas尺寸:', { width: canvasWidth, height: canvasHeight });
+          console.log('[Padding] 偏移量:', { offsetX, offsetY });
 
           const canvas = document.createElement('canvas');
           canvas.width = canvasWidth;
@@ -135,28 +162,35 @@ const CharacterImage: React.FC = () => {
           const ctx = canvas.getContext('2d');
 
           if (!ctx) {
+            console.error('[Padding] 无法获取canvas context');
             reject(new Error('Failed to get canvas context'));
             return;
           }
 
           // 使用边缘像素填充
           if (offsetY > 0) {
+            console.log('[Padding] 填充上下边缘像素');
             ctx.drawImage(img, 0, 0, srcWidth, 1, 0, 0, canvasWidth, offsetY);
             ctx.drawImage(img, 0, srcHeight - 1, srcWidth, 1, 0, offsetY + srcHeight, canvasWidth, offsetY);
           }
 
           if (offsetX > 0) {
+            console.log('[Padding] 填充左右边缘像素');
             ctx.drawImage(img, 0, 0, 1, srcHeight, 0, 0, offsetX, canvasHeight);
             ctx.drawImage(img, srcWidth - 1, 0, 1, srcHeight, offsetX + srcWidth, 0, offsetX, canvasHeight);
           }
 
+          console.log('[Padding] 绘制主图片, offset:', { x: offsetX, y: offsetY });
           ctx.drawImage(img, offsetX, offsetY);
 
           canvas.toBlob(
             (blob) => {
               if (blob) {
+                console.log('[Padding] Blob创建成功, 大小:', blob.size, 'bytes');
+                console.log('[Padding] Blob类型:', blob.type);
                 resolve(blob);
               } else {
+                console.error('[Padding] Blob创建失败');
                 reject(new Error('Failed to convert canvas to blob'));
               }
             },
@@ -164,15 +198,18 @@ const CharacterImage: React.FC = () => {
             0.95
           );
         } catch (error) {
+          console.error('[Padding] 处理过程出错:', error);
           reject(error);
         }
       };
 
-      img.onerror = () => {
+      img.onerror = (e) => {
+        console.error('[Padding] 图片加载失败:', imageUrl, e);
         reject(new Error(`Failed to load image: ${imageUrl}`));
       };
 
       img.src = imageUrl;
+      console.log('[Padding] 开始加载图片...');
     });
   };
 
@@ -241,12 +278,16 @@ const CharacterImage: React.FC = () => {
 
   // 生成图片
   const handleGenerate = async () => {
+    console.log('\n========== 开始生成图片 ==========');
+    console.log('上传的文件:', uploadedImage?.name, '大小:', uploadedImage?.size);
+
     if (!uploadedImage) {
       alert('请先上传图片');
       return;
     }
 
     const fullPrompt = getFullPrompt();
+    console.log('完整prompt:', fullPrompt);
     if (!fullPrompt) {
       alert('请输入或选择提示词');
       return;
@@ -256,48 +297,65 @@ const CharacterImage: React.FC = () => {
 
     try {
       // 1. 翻译prompt（如果启用）
+      console.log('\n=== 步骤1: Prompt翻译 ===');
+      console.log('翻译开关:', enableTranslation);
       let finalPrompt = fullPrompt;
       if (enableTranslation) {
         setIsTranslating(true);
         finalPrompt = await translateToEnglish(fullPrompt);
         setIsTranslating(false);
-        console.log('Original prompt:', fullPrompt);
-        console.log('Translated prompt:', finalPrompt);
+        console.log('原始prompt:', fullPrompt);
+        console.log('翻译后prompt:', finalPrompt);
+      } else {
+        console.log('翻译已关闭，使用原始prompt');
       }
 
       // 2. 将上传的图片转为ObjectURL
+      console.log('\n=== 步骤2: 创建Blob URL ===');
       const imageUrl = URL.createObjectURL(uploadedImage);
+      console.log('Blob URL:', imageUrl);
 
       // 3. 解析目标宽高比
+      console.log('\n=== 步骤3: 解析目标比例 ===');
+      console.log('选择的尺寸:', selectedSize);
       const ratio = parseAspectRatio(selectedSize);
       if (!ratio) {
+        console.error('解析比例失败:', selectedSize);
         alert('无效的尺寸格式');
         setIsGenerating(false);
         return;
       }
+      console.log('解析后的比例:', ratio);
 
       // 4. Padding到目标比例
-      console.log('Padding image to ratio:', selectedSize);
+      console.log('\n=== 步骤4: Padding图片 ===');
+      console.log('选择的尺寸:', selectedSize);
       const paddedBlob = await padImageToRatio(imageUrl, ratio);
-      console.log('Padded blob size:', paddedBlob.size);
+      console.log('Padding完成, blob大小:', paddedBlob.size);
 
-      // 4. 上传padding后的图片到R2，获取URL
+      // 5. 上传padding后的图片到R2，获取URL
+      console.log('\n=== 步骤5: 上传到R2 ===');
       const ratioString = selectedSize.replace(/[\[\]]/g, '').replace(':', '_');
-      console.log('Uploading padded image with ratio:', ratioString);
+      console.log('比例字符串:', ratioString);
 
       let paddedImageUrl;
       try {
         paddedImageUrl = await uploadPaddedImage(paddedBlob, ratioString);
-        console.log('Uploaded padded image URL:', paddedImageUrl);
+        console.log('上传成功, 获取到URL:', paddedImageUrl);
       } catch (uploadError) {
-        console.error('Failed to upload padded image:', uploadError);
+        console.error('上传失败:', uploadError);
         alert('上传图片失败，请重试');
         setIsGenerating(false);
         URL.revokeObjectURL(imageUrl);
         return;
       }
 
-      // 5. 提交请求（使用翻译后的prompt）
+      // 6. 验证上传的图片
+      console.log('\n=== 步骤6: 验证上传的图片 ===');
+      console.log('即将提交的图片URL:', paddedImageUrl);
+
+      // 7. 提交请求（使用翻译后的prompt）
+      console.log('\n=== 步骤7: 提交生成请求 ===');
       const requestBody = {
         prompt: finalPrompt,  // 使用翻译后的prompt
         image_size: selectedSize,
@@ -305,7 +363,7 @@ const CharacterImage: React.FC = () => {
         character_image_urls: [paddedImageUrl]  // 提交URL数组
       };
 
-      console.log('Request body:', JSON.stringify(requestBody, null, 2));
+      console.log('请求体:', JSON.stringify(requestBody, null, 2));
 
       const response = await fetch(`${API_URL}/generation/single`, {
         method: 'POST',
