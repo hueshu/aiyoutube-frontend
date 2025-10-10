@@ -6,10 +6,16 @@ interface UserStats {
   username: string;
   email: string;
   role: string;
-  daily_submission_limit: number;
+  workspace_daily_limit: number;
+  character_daily_limit: number;
+  script_daily_limit: number;
+  generation_daily_limit: number;
   created_at: string;
   total_submissions: number;
-  today_submissions: number;
+  workspace_today: number;
+  character_today: number;
+  script_today: number;
+  generation_today: number;
 }
 
 interface SubmissionLog {
@@ -26,7 +32,10 @@ interface UserDetail {
     username: string;
     email: string;
     role: string;
-    daily_submission_limit: number;
+    workspace_daily_limit: number;
+    character_daily_limit: number;
+    script_daily_limit: number;
+    generation_daily_limit: number;
     created_at: string;
   };
   statistics: {
@@ -48,7 +57,8 @@ const SubmissionStats: React.FC = () => {
   const [view, setView] = useState<'users' | 'detail' | 'submissions'>('users');
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
-  const [newLimit, setNewLimit] = useState<number>(100);
+  const [editingType, setEditingType] = useState<string | null>(null);
+  const [newLimit, setNewLimit] = useState<number>(500);
 
   const submissionTypeNames: Record<string, string> = {
     workspace: 'Workspace保存',
@@ -128,20 +138,21 @@ const SubmissionStats: React.FC = () => {
     }
   };
 
-  const updateDailyLimit = async (userId: number, limit: number) => {
+  const updateDailyLimit = async (userId: number, type: string, limit: number) => {
     try {
-      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/admin/stats/users/${userId}/limit`, {
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/admin/stats/users/${userId}/limit/${type}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ daily_submission_limit: limit })
+        body: JSON.stringify({ limit })
       });
 
       if (response.ok) {
         fetchUsers();
         setEditingUserId(null);
+        setEditingType(null);
       } else {
         console.error('Failed to update limit');
       }
@@ -216,108 +227,137 @@ const SubmissionStats: React.FC = () => {
                   <p>暂无数据</p>
                 </div>
               ) : (
-                <table className="w-full border-collapse">
+                <table className="w-full border-collapse text-sm">
                   <thead>
                     <tr className="border-b">
                       <th className="text-left p-2">ID</th>
                       <th className="text-left p-2">用户名</th>
                       <th className="text-left p-2">邮箱</th>
                       <th className="text-left p-2">角色</th>
-                      <th className="text-left p-2">今日提交</th>
-                      <th className="text-left p-2">每日限制</th>
-                      <th className="text-left p-2">总提交量</th>
+                      <th className="text-left p-2">Workspace</th>
+                      <th className="text-left p-2">角色图</th>
+                      <th className="text-left p-2">脚本</th>
+                      <th className="text-left p-2">生成</th>
+                      <th className="text-left p-2">总量</th>
                       <th className="text-left p-2">操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {users.map((user) => (
-                      <tr key={user.id} className="border-b hover:bg-gray-50">
-                        <td className="p-2">{user.id}</td>
-                        <td className="p-2">
-                          <button
-                            onClick={() => handleUserClick(user.id)}
-                            className="text-blue-600 hover:underline"
-                          >
-                            {user.username}
-                          </button>
-                        </td>
-                        <td className="p-2">{user.email}</td>
-                        <td className="p-2">
-                          <span className={`px-2 py-1 rounded text-xs ${
-                            user.role === 'admin' ? 'bg-red-100 text-red-600' :
-                            user.role === 'employee' ? 'bg-purple-100 text-purple-600' :
-                            'bg-blue-100 text-blue-600'
-                          }`}>
-                            {user.role === 'admin' ? '管理员' :
-                             user.role === 'employee' ? '员工' :
-                             '用户'}
-                          </span>
-                        </td>
-                        <td className="p-2">
-                          <span className={`font-semibold ${
-                            user.today_submissions >= user.daily_submission_limit ? 'text-red-600' :
-                            user.today_submissions >= user.daily_submission_limit * 0.8 ? 'text-orange-600' :
-                            'text-green-600'
-                          }`}>
-                            {user.today_submissions}
-                          </span>
-                        </td>
-                        <td className="p-2">
-                          {editingUserId === user.id ? (
-                            <div className="flex items-center space-x-2">
-                              <input
-                                type="number"
-                                value={newLimit}
-                                onChange={(e) => setNewLimit(parseInt(e.target.value))}
-                                className="w-20 border rounded px-2 py-1"
-                                min="0"
-                              />
-                              <button
-                                onClick={() => updateDailyLimit(user.id, newLimit)}
-                                className="text-green-600 hover:text-green-700 text-sm"
-                              >
-                                保存
-                              </button>
-                              <button
-                                onClick={() => setEditingUserId(null)}
-                                className="text-gray-600 hover:text-gray-700 text-sm"
-                              >
-                                取消
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center space-x-2">
-                              <span>{user.daily_submission_limit}</span>
-                              <button
-                                onClick={() => {
-                                  setEditingUserId(user.id);
-                                  setNewLimit(user.daily_submission_limit);
-                                }}
-                                className="text-blue-600 hover:text-blue-700 text-xs"
-                              >
-                                修改
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-2">
-                          <button
-                            onClick={() => handleUserClick(user.id)}
-                            className="text-blue-600 hover:underline font-semibold"
-                          >
-                            {user.total_submissions}
-                          </button>
-                        </td>
-                        <td className="p-2">
-                          <button
-                            onClick={() => handleUserClick(user.id)}
-                            className="text-blue-500 hover:text-blue-700"
-                          >
-                            <ChevronRight className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {users.map((user) => {
+                      const renderLimitCell = (type: string, todayCount: number, limit: number) => {
+                        const isEditing = editingUserId === user.id && editingType === type;
+                        const percentage = (todayCount / limit) * 100;
+
+                        return (
+                          <td className="p-2">
+                            {isEditing ? (
+                              <div className="flex items-center space-x-1">
+                                <input
+                                  type="number"
+                                  value={newLimit}
+                                  onChange={(e) => setNewLimit(parseInt(e.target.value))}
+                                  className="w-16 border rounded px-1 py-0.5 text-xs"
+                                  min="0"
+                                />
+                                <button
+                                  onClick={() => updateDailyLimit(user.id, type, newLimit)}
+                                  className="text-green-600 hover:text-green-700 text-xs"
+                                >
+                                  ✓
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditingUserId(null);
+                                    setEditingType(null);
+                                  }}
+                                  className="text-gray-600 hover:text-gray-700 text-xs"
+                                >
+                                  ✗
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col">
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className={`font-semibold ${
+                                    percentage >= 100 ? 'text-red-600' :
+                                    percentage >= 80 ? 'text-orange-600' :
+                                    'text-green-600'
+                                  }`}>
+                                    {todayCount}/{limit}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      setEditingUserId(user.id);
+                                      setEditingType(type);
+                                      setNewLimit(limit);
+                                    }}
+                                    className="text-blue-600 hover:text-blue-700 text-xs"
+                                  >
+                                    改
+                                  </button>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-1.5">
+                                  <div
+                                    className={`h-1.5 rounded-full ${
+                                      percentage >= 100 ? 'bg-red-500' :
+                                      percentage >= 80 ? 'bg-orange-500' :
+                                      'bg-green-500'
+                                    }`}
+                                    style={{ width: `${Math.min(percentage, 100)}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                        );
+                      };
+
+                      return (
+                        <tr key={user.id} className="border-b hover:bg-gray-50">
+                          <td className="p-2">{user.id}</td>
+                          <td className="p-2">
+                            <button
+                              onClick={() => handleUserClick(user.id)}
+                              className="text-blue-600 hover:underline"
+                            >
+                              {user.username}
+                            </button>
+                          </td>
+                          <td className="p-2 text-xs">{user.email}</td>
+                          <td className="p-2">
+                            <span className={`px-2 py-1 rounded text-xs ${
+                              user.role === 'admin' ? 'bg-red-100 text-red-600' :
+                              user.role === 'employee' ? 'bg-purple-100 text-purple-600' :
+                              'bg-blue-100 text-blue-600'
+                            }`}>
+                              {user.role === 'admin' ? '管理员' :
+                               user.role === 'employee' ? '员工' :
+                               '用户'}
+                            </span>
+                          </td>
+                          {renderLimitCell('workspace', user.workspace_today, user.workspace_daily_limit)}
+                          {renderLimitCell('character', user.character_today, user.character_daily_limit)}
+                          {renderLimitCell('script', user.script_today, user.script_daily_limit)}
+                          {renderLimitCell('generation', user.generation_today, user.generation_daily_limit)}
+                          <td className="p-2">
+                            <button
+                              onClick={() => handleUserClick(user.id)}
+                              className="text-blue-600 hover:underline font-semibold"
+                            >
+                              {user.total_submissions}
+                            </button>
+                          </td>
+                          <td className="p-2">
+                            <button
+                              onClick={() => handleUserClick(user.id)}
+                              className="text-blue-500 hover:text-blue-700"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -335,7 +375,7 @@ const SubmissionStats: React.FC = () => {
               <>
                 <div className="bg-gray-50 rounded-lg p-4">
                   <h3 className="font-semibold text-lg mb-2">用户信息</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4 mb-4">
                     <div>
                       <span className="text-gray-600">用户名：</span>
                       <span className="font-semibold">{userDetail.user.username}</span>
@@ -348,9 +388,24 @@ const SubmissionStats: React.FC = () => {
                       <span className="text-gray-600">角色：</span>
                       <span>{userDetail.user.role}</span>
                     </div>
-                    <div>
-                      <span className="text-gray-600">每日限制：</span>
-                      <span>{userDetail.user.daily_submission_limit}</span>
+                  </div>
+                  <h4 className="font-semibold text-md mb-2">每日限制</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="bg-white rounded p-2">
+                      <div className="text-xs text-gray-600 mb-1">Workspace</div>
+                      <div className="font-semibold text-blue-600">{userDetail.user.workspace_daily_limit}</div>
+                    </div>
+                    <div className="bg-white rounded p-2">
+                      <div className="text-xs text-gray-600 mb-1">角色图</div>
+                      <div className="font-semibold text-blue-600">{userDetail.user.character_daily_limit}</div>
+                    </div>
+                    <div className="bg-white rounded p-2">
+                      <div className="text-xs text-gray-600 mb-1">脚本</div>
+                      <div className="font-semibold text-blue-600">{userDetail.user.script_daily_limit}</div>
+                    </div>
+                    <div className="bg-white rounded p-2">
+                      <div className="text-xs text-gray-600 mb-1">生成</div>
+                      <div className="font-semibold text-blue-600">{userDetail.user.generation_daily_limit}</div>
                     </div>
                   </div>
                 </div>
