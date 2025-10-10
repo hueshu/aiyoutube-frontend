@@ -9,6 +9,7 @@ interface BenchmarkVideo {
   description: string;
   tags: string[];
   videoFileUrl: string;
+  audioFileUrl?: string;
   previewUrl?: string;
   createdAt: string;
   createdBy: string;
@@ -20,6 +21,13 @@ interface VideoInput {
   tags: string;
 }
 
+interface VideoTask {
+  taskId: string;
+  videoUrl: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  error?: string;
+}
+
 const BenchmarkVideoLibrary: React.FC = () => {
   const [videos, setVideos] = useState<BenchmarkVideo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -28,6 +36,8 @@ const BenchmarkVideoLibrary: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
+  const [processingTasks, setProcessingTasks] = useState<VideoTask[]>([]);
+  const [showProcessing, setShowProcessing] = useState(false);
 
   const DAYS_PER_PAGE = 7;
 
@@ -95,7 +105,23 @@ const BenchmarkVideoLibrary: React.FC = () => {
         })
       });
 
-      if (response.ok) {
+      if (response.status === 202) {
+        // 异步处理模式
+        const data = await response.json();
+        const tasks: VideoTask[] = data.tasks.map((t: any) => ({
+          taskId: t.taskId,
+          videoUrl: t.videoUrl,
+          status: t.status,
+        }));
+
+        setProcessingTasks(tasks);
+        setShowAddModal(false);
+        setShowProcessing(true);
+        setVideoInputs([{ url: '', description: '', tags: '' }]);
+
+        // 开始轮询任务状态
+        startPollingTasks(tasks.map(t => t.taskId));
+      } else if (response.ok) {
         alert('视频添加成功！');
         setShowAddModal(false);
         setVideoInputs([{ url: '', description: '', tags: '' }]);
@@ -110,6 +136,57 @@ const BenchmarkVideoLibrary: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const startPollingTasks = (taskIds: string[]) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`${API_URL}/benchmark-videos/tasks/status`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ taskIds })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const tasks: VideoTask[] = data.tasks.map((t: any) => ({
+            taskId: t.taskId,
+            videoUrl: t.videoUrl,
+            status: t.status,
+            error: t.error,
+          }));
+
+          setProcessingTasks(tasks);
+
+          // 检查是否所有任务都已完成
+          const allCompleted = tasks.every(t => t.status === 'completed' || t.status === 'failed');
+          if (allCompleted) {
+            clearInterval(pollInterval);
+            fetchVideos(); // 刷新视频列表
+
+            // 显示完成提示
+            const completedCount = tasks.filter(t => t.status === 'completed').length;
+            const failedCount = tasks.filter(t => t.status === 'failed').length;
+
+            setTimeout(() => {
+              alert(`处理完成！成功: ${completedCount}个，失败: ${failedCount}个`);
+              setShowProcessing(false);
+              setProcessingTasks([]);
+            }, 1000);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to poll task status:', error);
+      }
+    }, 2000); // 每2秒轮询一次
+
+    // 5分钟后停止轮询
+    setTimeout(() => {
+      clearInterval(pollInterval);
+    }, 5 * 60 * 1000);
   };
 
   const handleDelete = async (videoId: string) => {
@@ -137,14 +214,33 @@ const BenchmarkVideoLibrary: React.FC = () => {
     }
   };
 
-  const handleDownload = (videoUrl: string, title: string) => {
-    const link = document.createElement('a');
-    link.href = videoUrl;
-    link.download = `${title}.mp4`;
-    link.target = '_blank';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleDownload = async (fileUrl: string, title: string) => {
+    try {
+      // 如果是相对路径，加上API_URL前缀
+      const fullUrl = fileUrl.startsWith('http') ? fileUrl : `${API_URL.replace('/api/v1', '')}${fileUrl}`;
+
+      // 获取文件扩展名
+      const ext = fileUrl.includes('.m4a') ? 'm4a' : 'mp4';
+
+      // 使用fetch下载文件
+      const response = await fetch(fullUrl);
+      const blob = await response.blob();
+
+      // 创建blob URL并触发下载
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `${title}.${ext}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // 释放blob URL
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert('下载失败，请重试');
+    }
   };
 
   // 按日期分组视频
@@ -225,7 +321,7 @@ const BenchmarkVideoLibrary: React.FC = () => {
                         {playingVideo === video.id ? (
                           <div className="relative mb-3">
                             <video
-                              src={video.videoFileUrl}
+                              src={video.videoFileUrl.startsWith('http') ? video.videoFileUrl : `${API_URL.replace('/api/v1', '')}${video.videoFileUrl}`}
                               controls
                               autoPlay
                               className="w-full rounded-lg"
@@ -270,27 +366,38 @@ const BenchmarkVideoLibrary: React.FC = () => {
                         )}
 
                         {/* 操作按钮 */}
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => setPlayingVideo(playingVideo === video.id ? null : video.id)}
-                            className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm"
-                          >
-                            <Play className="w-4 h-4" />
-                            <span>{playingVideo === video.id ? '收起' : '播放'}</span>
-                          </button>
-                          <button
-                            onClick={() => handleDownload(video.videoFileUrl, video.title)}
-                            className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
-                          >
-                            <Download className="w-4 h-4" />
-                            <span>下载</span>
-                          </button>
-                          <button
-                            onClick={() => handleDelete(video.id)}
-                            className="px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                        <div className="space-y-2">
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => setPlayingVideo(playingVideo === video.id ? null : video.id)}
+                              className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm"
+                            >
+                              <Play className="w-4 h-4" />
+                              <span>{playingVideo === video.id ? '收起' : '播放'}</span>
+                            </button>
+                            <button
+                              onClick={() => handleDownload(video.videoFileUrl, video.title)}
+                              className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
+                            >
+                              <Download className="w-4 h-4" />
+                              <span>视频</span>
+                            </button>
+                            {video.audioFileUrl && (
+                              <button
+                                onClick={() => handleDownload(video.audioFileUrl!, `${video.title}-audio`)}
+                                className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors text-sm"
+                              >
+                                <Download className="w-4 h-4" />
+                                <span>音频</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDelete(video.id)}
+                              className="px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
 
                         {/* 原始URL */}
@@ -333,6 +440,38 @@ const BenchmarkVideoLibrary: React.FC = () => {
             </div>
           )}
         </>
+      )}
+
+      {/* 处理进度显示 */}
+      {showProcessing && (
+        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-xl p-6 max-w-md z-50 border-2 border-blue-500">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">视频处理中...</h3>
+            <Loader className="w-5 h-5 animate-spin text-blue-600" />
+          </div>
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {processingTasks.map((task) => (
+              <div key={task.taskId} className="flex items-center space-x-2 text-sm">
+                <div className="flex-1 truncate">{task.videoUrl}</div>
+                {task.status === 'pending' && (
+                  <span className="text-gray-500">等待中...</span>
+                )}
+                {task.status === 'processing' && (
+                  <Loader className="w-4 h-4 animate-spin text-blue-600" />
+                )}
+                {task.status === 'completed' && (
+                  <span className="text-green-600">✓ 完成</span>
+                )}
+                {task.status === 'failed' && (
+                  <span className="text-red-600" title={task.error}>✗ 失败</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 text-sm text-gray-600">
+            {processingTasks.filter(t => t.status === 'completed').length} / {processingTasks.length} 已完成
+          </div>
+        </div>
       )}
 
       {/* 添加视频模态框 */}
