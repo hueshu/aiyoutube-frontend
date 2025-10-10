@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { Users, BarChart, UserPlus, Trash2, Edit, Shield, Activity, Eye, EyeOff, CheckCircle, XCircle, AlertCircle, RefreshCw, Key } from 'lucide-react';
+import { Users, BarChart, UserPlus, Trash2, Edit, Shield, Activity, Eye, EyeOff, CheckCircle, XCircle, AlertCircle, RefreshCw, Key, FileText } from 'lucide-react';
+import SubmissionStats from './SubmissionStats';
 
 interface User {
   id: number;
@@ -82,7 +83,7 @@ const AdminPanel: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
-  const [activeTab, setActiveTab] = useState<'users' | 'stats'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'stats' | 'submissions'>('users');
   const [searchTerm, setSearchTerm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -379,6 +380,13 @@ const AdminPanel: React.FC = () => {
               <BarChart className="w-4 h-4 inline mr-2" />
               系统统计
             </button>
+            <button
+              onClick={() => setActiveTab('submissions')}
+              className={`px-4 py-2 rounded ${activeTab === 'submissions' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+            >
+              <FileText className="w-4 h-4 inline mr-2" />
+              提交统计
+            </button>
           </div>
         </div>
 
@@ -621,6 +629,10 @@ const AdminPanel: React.FC = () => {
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === 'submissions' && (
+          <SubmissionStats />
         )}
       </div>
 
