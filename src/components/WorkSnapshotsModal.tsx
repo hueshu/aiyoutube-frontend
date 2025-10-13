@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Clock, Trash2, RotateCcw, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Clock, Trash2, RotateCcw } from 'lucide-react';
 import { snapshotService, type WorkSnapshot, type WorkSnapshotData } from '../services/snapshotService';
 import VideoUploader from './VideoUploader';
 
@@ -18,7 +18,6 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
 }) => {
   const [snapshots, setSnapshots] = useState<WorkSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [loadingSnapshotId, setLoadingSnapshotId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -75,9 +74,6 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
     try {
       await snapshotService.deleteSnapshot(snapshotId);
       setSnapshots(snapshots.filter(s => s.id !== snapshotId));
-      if (expandedId === snapshotId) {
-        setExpandedId(null);
-      }
     } catch (error) {
       console.error('Failed to delete snapshot:', error);
       alert(error instanceof Error ? error.message : '删除失败');
@@ -106,10 +102,6 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
       }
       return s;
     }));
-  };
-
-  const toggleExpand = (snapshotId: number) => {
-    setExpandedId(expandedId === snapshotId ? null : snapshotId);
   };
 
   const formatDate = (dateString: string): string => {
@@ -161,35 +153,25 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
             ) : (
               <div className="space-y-4">
                 {snapshots.map((snapshot) => {
-                  const isExpanded = expandedId === snapshot.id;
                   const isRestoring = loadingSnapshotId === snapshot.id;
 
                   return (
                     <div
                       key={snapshot.id}
-                      className="border border-gray-200 rounded-lg overflow-hidden"
+                      className="border border-gray-200 rounded-lg p-4 space-y-3"
                     >
-                      {/* Snapshot Header */}
-                      <div className="bg-gray-50 px-4 py-3">
-                        <div className="flex items-start justify-between">
+                      {/* 保存时间和脚本名称 */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
                           <div className="flex-1">
-                            <h4 className="font-medium text-gray-900">
-                              {snapshot.snapshotName}
-                            </h4>
-                            <p className="text-sm text-gray-600 mt-1">
-                              {formatDate(snapshot.createdAt)}
+                            <p className="text-sm text-gray-600">
+                              <span className="font-medium">保存时间:</span> {formatDate(snapshot.createdAt)}
                             </p>
-                            {snapshot.scriptPreview && (
-                              <p className="text-sm text-gray-500 mt-2 line-clamp-2">
-                                {snapshot.scriptPreview}...
-                              </p>
-                            )}
-                            <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
-                              <span>视频: {snapshot.videos?.length || 0}</span>
-                            </div>
+                            <p className="text-sm text-gray-900 mt-1">
+                              <span className="font-medium">脚本名称:</span> {snapshot.snapshotName}
+                            </p>
                           </div>
-
-                          <div className="flex items-center space-x-2 ml-4">
+                          <div className="flex items-center space-x-2">
                             <button
                               onClick={() => handleRestore(snapshot.id)}
                               disabled={isRestoring}
@@ -198,17 +180,6 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
                             >
                               <RotateCcw className={`w-4 h-4 mr-1 ${isRestoring ? 'animate-spin' : ''}`} />
                               {isRestoring ? '恢复中...' : '恢复'}
-                            </button>
-                            <button
-                              onClick={() => toggleExpand(snapshot.id)}
-                              className="p-1.5 text-gray-400 hover:text-gray-600"
-                              title={isExpanded ? '收起' : '展开'}
-                            >
-                              {isExpanded ? (
-                                <ChevronUp className="w-5 h-5" />
-                              ) : (
-                                <ChevronDown className="w-5 h-5" />
-                              )}
                             </button>
                             <button
                               onClick={() => handleDelete(snapshot.id)}
@@ -221,17 +192,15 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Expanded Content */}
-                      {isExpanded && (
-                        <div className="px-4 py-4 border-t border-gray-200">
-                          <VideoUploader
-                            snapshotId={snapshot.id}
-                            videos={snapshot.videos || []}
-                            onUploadSuccess={(video) => handleVideoUploadSuccess(snapshot.id, video)}
-                            onDeleteSuccess={(videoId) => handleVideoDeleteSuccess(snapshot.id, videoId)}
-                          />
-                        </div>
-                      )}
+                      {/* 视频上传和列表 */}
+                      <div className="border-t border-gray-200 pt-3">
+                        <VideoUploader
+                          snapshotId={snapshot.id}
+                          videos={snapshot.videos || []}
+                          onUploadSuccess={(video) => handleVideoUploadSuccess(snapshot.id, video)}
+                          onDeleteSuccess={(videoId) => handleVideoDeleteSuccess(snapshot.id, videoId)}
+                        />
+                      </div>
                     </div>
                   );
                 })}
