@@ -126,7 +126,7 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
         />
 
         {/* Modal panel */}
-        <div className="inline-block w-full max-w-4xl my-8 overflow-hidden text-left align-middle transition-all transform bg-white rounded-lg shadow-xl">
+        <div className="inline-block w-full max-w-6xl my-8 overflow-hidden text-left align-middle transition-all transform bg-white rounded-lg shadow-xl">
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-medium text-gray-900">工作记录</h3>
@@ -151,55 +151,57 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
                 <p className="text-sm text-gray-400">点击"保存工作"按钮可保存当前工作状态</p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-2">
                 {snapshots.map((snapshot) => {
                   const isRestoring = loadingSnapshotId === snapshot.id;
 
                   return (
                     <div
                       key={snapshot.id}
-                      className="border border-gray-200 rounded-lg p-4 space-y-3"
+                      className="border border-gray-200 rounded p-3 hover:bg-gray-50"
                     >
-                      {/* 保存时间和脚本名称 */}
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex-1">
-                            <p className="text-sm text-gray-600">
-                              <span className="font-medium">保存时间:</span> {formatDate(snapshot.createdAt)}
-                            </p>
-                            <p className="text-sm text-gray-900 mt-1">
-                              <span className="font-medium">脚本名称:</span> {snapshot.snapshotName}
-                            </p>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <button
-                              onClick={() => handleRestore(snapshot.id)}
-                              disabled={isRestoring}
-                              className="flex items-center px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded disabled:opacity-50"
-                              title="恢复工作状态"
-                            >
-                              <RotateCcw className={`w-4 h-4 mr-1 ${isRestoring ? 'animate-spin' : ''}`} />
-                              {isRestoring ? '恢复中...' : '恢复'}
-                            </button>
-                            <button
-                              onClick={() => handleDelete(snapshot.id)}
-                              className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                              title="删除"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
+                      <div className="flex items-center gap-4">
+                        {/* 保存时间 */}
+                        <div className="flex-shrink-0 w-36">
+                          <p className="text-xs text-gray-500">保存时间</p>
+                          <p className="text-sm text-gray-900">{formatDate(snapshot.createdAt)}</p>
                         </div>
-                      </div>
 
-                      {/* 视频上传和列表 */}
-                      <div className="border-t border-gray-200 pt-3">
-                        <VideoUploader
-                          snapshotId={snapshot.id}
-                          videos={snapshot.videos || []}
-                          onUploadSuccess={(video) => handleVideoUploadSuccess(snapshot.id, video)}
-                          onDeleteSuccess={(videoId) => handleVideoDeleteSuccess(snapshot.id, videoId)}
-                        />
+                        {/* 脚本名称 */}
+                        <div className="flex-shrink-0 w-44">
+                          <p className="text-xs text-gray-500">脚本名称</p>
+                          <p className="text-sm text-gray-900 truncate">{snapshot.snapshotName}</p>
+                        </div>
+
+                        {/* 视频上传和列表 */}
+                        <div className="flex-1 min-w-0">
+                          <VideoUploader
+                            snapshotId={snapshot.id}
+                            videos={snapshot.videos || []}
+                            onUploadSuccess={(video) => handleVideoUploadSuccess(snapshot.id, video)}
+                            onDeleteSuccess={(videoId) => handleVideoDeleteSuccess(snapshot.id, videoId)}
+                          />
+                        </div>
+
+                        {/* 操作按钮 */}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button
+                            onClick={() => handleRestore(snapshot.id)}
+                            disabled={isRestoring}
+                            className="flex items-center px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded disabled:opacity-50"
+                            title="恢复工作状态"
+                          >
+                            <RotateCcw className={`w-4 h-4 mr-1 ${isRestoring ? 'animate-spin' : ''}`} />
+                            {isRestoring ? '恢复中...' : '恢复'}
+                          </button>
+                          <button
+                            onClick={() => handleDelete(snapshot.id)}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                            title="删除"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );

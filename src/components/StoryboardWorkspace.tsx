@@ -151,6 +151,42 @@ const StoryboardWorkspace: React.FC = () => {
     return () => clearInterval(interval);
   }, [generatingFrames]);
 
+  // Check for pending snapshot restore (from admin panel)
+  useEffect(() => {
+    const pendingRestore = localStorage.getItem('pendingSnapshotRestore');
+    if (pendingRestore) {
+      try {
+        const snapshotData = JSON.parse(pendingRestore);
+        console.log('[Admin Restore] 检测到待恢复的快照:', snapshotData);
+
+        // Clear the flag first
+        localStorage.removeItem('pendingSnapshotRestore');
+
+        // Wait for scripts to load before restoring
+        const checkAndRestore = () => {
+          if (scripts && scripts.length > 0) {
+            console.log('[Admin Restore] Scripts 已加载,开始恢复');
+            // Call restore function without showing confirmation dialog
+            // We'll create a special version for admin restore
+            restoreSnapshotWithoutConfirm(snapshotData, true);
+          } else {
+            console.log('[Admin Restore] 等待 scripts 加载...');
+            // Retry after 200ms
+            setTimeout(checkAndRestore, 200);
+          }
+        };
+
+        // Start checking after a short delay to ensure component is fully mounted
+        setTimeout(checkAndRestore, 100);
+
+      } catch (error) {
+        console.error('[Admin Restore] 恢复失败:', error);
+        localStorage.removeItem('pendingSnapshotRestore');
+        alert('恢复用户工作快照失败');
+      }
+    }
+  }, []); // Run only once on mount
+
   // Helper function to clear generating state and timer
   const clearGeneratingState = (frameNumber: number) => {
     setGeneratingFrames(prev => {
@@ -1923,7 +1959,8 @@ const StoryboardWorkspace: React.FC = () => {
         canvasState: {
           ratioTemplate: imageSize || '',
           filledImages: {} // TODO: if there's canvas state, include it here
-        }
+        },
+        model: model || '' // Save AI model selection
       };
 
       await snapshotService.createSnapshot(
@@ -1941,52 +1978,180 @@ const StoryboardWorkspace: React.FC = () => {
     }
   };
 
-  // Handle restore work snapshot
+  // Restore snapshot without confirmation (for admin restore or programmatic restore)
+  const restoreSnapshotWithoutConfirm = async (snapshotData: WorkSnapshotData, isAdminRestore: boolean = false) => {
+    try {
+      const messagePrefix = isAdminRestore ? '[Admin Restore]' : '[Restore]';
+      console.log(`${messagePrefix} 开始恢复工作状态`);
+      console.log(`${messagePrefix} snapshotData:`, snapshotData);
+      console.log(`${messagePrefix} 当前 scripts:`, scripts);
+
+      // Check if scripts are loaded, if not, wait for them to load
+      if (!scripts || scripts.length === 0) {
+        console.warn(`${messagePrefix} Scripts not loaded yet, fetching...`);
+        try {
+          await fetchScripts(libraryScope);
+          // Wait for state update
+          await new Promise(resolve => setTimeout(resolve, 300));
+          console.log(`${messagePrefix} Scripts loaded after fetch`);
+        } catch (error) {
+          console.error(`${messagePrefix} 加载脚本失败:`, error);
+          alert('脚本加载失败，请刷新页面后重试');
+          return;
+        }
+      }
+
+      // Get latest scripts from store
+      let currentScripts = useStore.getState().scripts;
+      console.log(`${messagePrefix} 当前 scripts 数量:`, currentScripts.length);
+
+      // Find script in current scope
+      let script = currentScripts.find(s => s.id === snapshotData.projectId);
+      let isSystemScript = false; // Track if this is a system script
+
+      // If not found in current scope, try loading system scripts
+      if (!script && libraryScope !== 'system') {
+        console.log(`${messagePrefix} 在当前范围未找到脚本，尝试加载系统脚本`);
+        try {
+          await fetchScripts('system');
+          // Need to wait a bit for state update
+          await new Promise(resolve => setTimeout(resolve, 200));
+          // Get latest scripts again after loading system scripts
+          currentScripts = useStore.getState().scripts;
+          script = currentScripts.find(s => s.id === snapshotData.projectId);
+          if (script) {
+            console.log(`${messagePrefix} 在系统脚本中找到了目标脚本`);
+            isSystemScript = true; // Mark as system script
+          }
+        } catch (error) {
+          console.error(`${messagePrefix} 加载系统脚本失败:`, error);
+        }
+      }
+
+      // If still not found, show error
+      if (!script) {
+        console.error(`${messagePrefix} 未找到对应的脚本, projectId:`, snapshotData.projectId);
+        alert('未找到对应的脚本，可能已被删除');
+        return;
+      }
+
+      // Check if this is a system script by user_id (system scripts have user_id = 0)
+      // Override the flag based on the actual script object
+      if (script.user_id === 0) {
+        isSystemScript = true;
+        console.log(`${messagePrefix} 检测到系统脚本 (user_id = 0)`);
+      }
+
+      // Step 1: Set script first
+      setSelectedScriptId(script.id.toString());
+      setSelectedScript(script);
+      console.log(`${messagePrefix} 已设置 selectedScriptId 和 selectedScript`);
+
+      // Step 2: Use setTimeout to ensure script state is updated before restoring frames
+      setTimeout(() => {
+        try {
+          console.log(`${messagePrefix} 延迟恢复 - 开始恢复 frames 和其他状态`);
+
+          // Restore frames with images
+          const restoredFrames: ScriptFrame[] = snapshotData.script.map((frame: any) => {
+            const frameData = snapshotData.frames.find(f => f.frame_number === frame.frame_number);
+            return {
+              ...frame,
+              generated_image: frameData?.generated_image,
+              generated_images: frameData?.generated_images || [],
+              costume: frameData?.costume || []
+            };
+          });
+          setScriptFrames(restoredFrames);
+          console.log(`${messagePrefix} 已设置 scriptFrames`);
+
+          // Restore character mapping
+          const mapping: Record<string, number> = {};
+          snapshotData.characters.forEach((char: any) => {
+            if (char.scriptCharacter && char.characterId) {
+              mapping[char.scriptCharacter] = char.characterId;
+            }
+          });
+          setCharacterMapping(mapping);
+          console.log(`${messagePrefix} 已设置 characterMapping`);
+
+          // Restore canvas state
+          if (snapshotData.canvasState?.ratioTemplate) {
+            setImageSize(snapshotData.canvasState.ratioTemplate);
+            console.log(`${messagePrefix} 已设置 imageSize`);
+          }
+
+          // Restore AI model selection
+          if (snapshotData.model) {
+            setModel(snapshotData.model as any);
+            console.log(`${messagePrefix} 已设置 model`);
+          }
+
+          console.log(`${messagePrefix} 恢复完成!`);
+
+          // Step 3: Reload characters to ensure character images can be displayed
+          // Use 'system' scope if restoring a system script, otherwise use current libraryScope
+          const characterScope = isSystemScript ? 'system' : libraryScope;
+          console.log(`${messagePrefix} 重新加载角色数据 (scope: ${characterScope})`);
+          fetchCharacters(characterScope).then(() => {
+            console.log(`${messagePrefix} 角色数据已重新加载`);
+
+            // Wait longer to ensure React state has updated
+            // Force UI update by re-setting characterMapping with the same values
+            // This triggers React to re-render the character mapping UI
+            setTimeout(() => {
+              // Get latest characters from store to ensure they're loaded
+              const latestCharacters = useStore.getState().characters;
+              console.log(`${messagePrefix} 最新角色数量: ${latestCharacters.length}`);
+
+              setCharacterMapping({...mapping});
+              console.log(`${messagePrefix} 强制更新角色映射UI`);
+
+              // Show success message after forced update
+              setTimeout(() => {
+                if (isAdminRestore) {
+                  alert('管理员已成功恢复用户工作快照');
+                } else {
+                  alert('工作状态恢复成功!');
+                }
+              }, 100);
+            }, 300); // Increased from 100ms to 300ms
+          }).catch((error) => {
+            console.error(`${messagePrefix} 重新加载角色失败:`, error);
+            // Still show success message even if character reload fails
+            setTimeout(() => {
+              if (isAdminRestore) {
+                alert('管理员已成功恢复用户工作快照\n(部分角色图片可能需要手动刷新)');
+              } else {
+                alert('工作状态恢复成功!\n(部分角色图片可能需要手动刷新)');
+              }
+            }, 100);
+          });
+        } catch (error) {
+          console.error(`${messagePrefix} 延迟恢复阶段失败:`, error);
+          alert(error instanceof Error ? error.message : '恢复工作状态失败，请重试');
+        }
+      }, 100);
+
+    } catch (error) {
+      console.error('[Restore] 恢复失败:', error);
+      alert(error instanceof Error ? error.message : '恢复工作状态失败，请重试');
+    }
+  };
+
+  // Handle restore work snapshot (with confirmation)
   const handleRestoreWorkSnapshot = (snapshotData: WorkSnapshotData) => {
     if (!confirm('恢复此工作将覆盖当前工作状态，确定继续吗？')) {
       return;
     }
 
-    try {
-      // Restore script
-      const script = scripts.find(s => s.id === snapshotData.projectId);
-      if (script) {
-        setSelectedScriptId(script.id.toString());
-        setSelectedScript(script);
-      }
+    // Call the restore function without isAdminRestore flag
+    restoreSnapshotWithoutConfirm(snapshotData, false);
 
-      // Restore frames
-      const restoredFrames: ScriptFrame[] = snapshotData.script.map((frame: any) => {
-        const frameData = snapshotData.frames.find(f => f.frame_number === frame.frame_number);
-        return {
-          ...frame,
-          generated_image: frameData?.generated_image,
-          generated_images: frameData?.generated_images || [],
-          costume: frameData?.costume || []
-        };
-      });
-      setScriptFrames(restoredFrames);
-
-      // Restore character mapping
-      const mapping: Record<string, number> = {};
-      snapshotData.characters.forEach((char: any) => {
-        if (char.scriptCharacter && char.characterId) {
-          mapping[char.scriptCharacter] = char.characterId;
-        }
-      });
-      setCharacterMapping(mapping);
-
-      // Restore canvas state
-      if (snapshotData.canvasState.ratioTemplate) {
-        setImageSize(snapshotData.canvasState.ratioTemplate);
-      }
-
-      alert('工作状态恢复成功!');
+    // Close modal after successful restore
+    setTimeout(() => {
       setWorkSnapshotsModalOpen(false);
-    } catch (error) {
-      console.error('Restore work snapshot error:', error);
-      alert(error instanceof Error ? error.message : '恢复工作状态失败，请重试');
-    }
+    }, 300);
   };
 
   return (
@@ -2117,8 +2282,16 @@ const StoryboardWorkspace: React.FC = () => {
                 f.charactersInFrame || extractCharactersFromPrompt(f.originalPrompt || f.prompt)
               )
             )].map(scriptChar => {
-              const selectedCharacter = characters.find((c: any) => c.id === characterMapping[scriptChar]);
-              
+              // Try to find character in current scope first
+              let selectedCharacter = characters.find((c: any) => c.id === characterMapping[scriptChar]);
+
+              // If not found and we have a mapping, try to get from store directly
+              // This handles the case where we restored a system script but component is in 'mine' scope
+              if (!selectedCharacter && characterMapping[scriptChar]) {
+                const allCharacters = useStore.getState().characters;
+                selectedCharacter = allCharacters.find((c: any) => c.id === characterMapping[scriptChar]);
+              }
+
               return (
                 <div 
                   key={scriptChar} 

@@ -10,6 +10,7 @@ export interface WorkSnapshotData {
     ratioTemplate: string;
     filledImages: Record<string, string>;
   };
+  model?: string; // AI model selection
 }
 
 export interface WorkSnapshot {
@@ -33,6 +34,7 @@ export interface SnapshotVideo {
 
 export interface YouTubeLink {
   id: number;
+  videoId: number;
   youtubeUrl: string;
   addedBy: number;
   addedByUsername?: string;
@@ -239,14 +241,14 @@ export const adminSnapshotService = {
     return response.json();
   },
 
-  // Add YouTube link
+  // Add YouTube link to a video
   async addYouTubeLink(
-    snapshotId: number,
+    videoId: number,
     youtubeUrl: string,
     notes?: string
   ): Promise<YouTubeLink> {
     const response = await fetch(
-      `${API_BASE_URL}/admin/snapshots/${snapshotId}/youtube-links`,
+      `${API_BASE_URL}/admin/snapshots/videos/${videoId}/youtube-link`,
       {
         method: 'POST',
         headers: {
@@ -265,10 +267,10 @@ export const adminSnapshotService = {
     return response.json();
   },
 
-  // Delete YouTube link
-  async deleteYouTubeLink(snapshotId: number, linkId: number): Promise<void> {
+  // Delete YouTube link from a video
+  async deleteYouTubeLink(videoId: number): Promise<void> {
     const response = await fetch(
-      `${API_BASE_URL}/admin/snapshots/${snapshotId}/youtube-links/${linkId}`,
+      `${API_BASE_URL}/admin/snapshots/videos/${videoId}/youtube-link`,
       {
         method: 'DELETE',
         headers: {

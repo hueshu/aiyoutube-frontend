@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, ChevronDown, ChevronUp, Trash2, Plus, Link as LinkIcon, X, RotateCcw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Clock, Trash2, Plus, X, RotateCcw } from 'lucide-react';
 import { adminSnapshotService, type AdminSnapshot, type YouTubeLink } from '../services/snapshotService';
-import VideoUploader from './VideoUploader';
 
 const AdminWorkSnapshots: React.FC = () => {
+  const navigate = useNavigate();
   const [snapshots, setSnapshots] = useState<AdminSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [filters, setFilters] = useState({
     userId: '',
     startDate: '',
@@ -14,13 +14,17 @@ const AdminWorkSnapshots: React.FC = () => {
   });
   const [addYoutubeLinkModal, setAddYoutubeLinkModal] = useState<{
     isOpen: boolean;
-    snapshotId: number | null;
-  }>({ isOpen: false, snapshotId: null });
+    videoId: number | null;
+  }>({ isOpen: false, videoId: null });
   const [youtubeForm, setYoutubeForm] = useState({
     youtubeUrl: '',
     notes: ''
   });
   const [restoreLoading, setRestoreLoading] = useState<number | null>(null);
+  const [viewModal, setViewModal] = useState<{
+    isOpen: boolean;
+    snapshot: AdminSnapshot | null;
+  }>({ isOpen: false, snapshot: null });
 
   useEffect(() => {
     loadSnapshots();
@@ -45,14 +49,14 @@ const AdminWorkSnapshots: React.FC = () => {
   };
 
   const handleAddYouTubeLink = async () => {
-    if (!addYoutubeLinkModal.snapshotId || !youtubeForm.youtubeUrl) {
+    if (!addYoutubeLinkModal.videoId || !youtubeForm.youtubeUrl) {
       alert('请输入 YouTube 链接');
       return;
     }
 
     try {
       await adminSnapshotService.addYouTubeLink(
-        addYoutubeLinkModal.snapshotId,
+        addYoutubeLinkModal.videoId,
         youtubeForm.youtubeUrl,
         youtubeForm.notes
       );
@@ -61,7 +65,7 @@ const AdminWorkSnapshots: React.FC = () => {
       await loadSnapshots();
 
       // Close modal and reset form
-      setAddYoutubeLinkModal({ isOpen: false, snapshotId: null });
+      setAddYoutubeLinkModal({ isOpen: false, videoId: null });
       setYoutubeForm({ youtubeUrl: '', notes: '' });
 
       alert('YouTube 链接添加成功!');
@@ -71,11 +75,11 @@ const AdminWorkSnapshots: React.FC = () => {
     }
   };
 
-  const handleDeleteYouTubeLink = async (snapshotId: number, linkId: number) => {
+  const handleDeleteYouTubeLink = async (videoId: number) => {
     if (!confirm('确定删除此 YouTube 链接吗？')) return;
 
     try {
-      await adminSnapshotService.deleteYouTubeLink(snapshotId, linkId);
+      await adminSnapshotService.deleteYouTubeLink(videoId);
       await loadSnapshots();
       alert('删除成功!');
     } catch (error) {
@@ -84,52 +88,62 @@ const AdminWorkSnapshots: React.FC = () => {
     }
   };
 
-  const handleRestore = async (snapshotId: number) => {
-    if (!confirm('确定要恢复此工作状态吗？这将影响该用户的工作区。')) {
-      return;
+  const handleDownloadVideo = async (videoUrl: string) => {
+    try {
+      const response = await fetch(videoUrl);
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const urlParts = videoUrl.split('/');
+        const filename = decodeURIComponent(urlParts[urlParts.length - 1]) || 'video.mp4';
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } else {
+        alert(`下载失败 (错误代码: ${response.status})`);
+      }
+    } catch (error) {
+      console.error('Video download failed:', error);
+      alert('视频下载失败，请稍后重试');
     }
+  };
 
+  const handleViewSnapshot = async (snapshotId: number) => {
     setRestoreLoading(snapshotId);
     try {
       const snapshot = await adminSnapshotService.getSnapshot(snapshotId);
-      if (snapshot.snapshotData) {
-        // Admin restore is informational only - we just show the data
-        alert('工作状态数据已加载，请在用户界面中应用。\n\n提示：管理员查看功能，实际恢复需在用户端操作。');
-      }
+      setViewModal({ isOpen: true, snapshot });
     } catch (error) {
-      console.error('Failed to restore snapshot:', error);
-      alert(error instanceof Error ? error.message : '恢复失败');
+      console.error('Failed to load snapshot:', error);
+      alert(error instanceof Error ? error.message : '加载失败');
     } finally {
       setRestoreLoading(null);
     }
   };
 
-  const handleVideoUploadSuccess = (snapshotId: number, video: any) => {
-    setSnapshots(snapshots.map(s => {
-      if (s.id === snapshotId) {
-        return {
-          ...s,
-          videos: [...(s.videos || []), video]
-        };
-      }
-      return s;
-    }));
-  };
+  const handleRestoreToWorkspace = async (snapshotId: number) => {
+    try {
+      // Fetch snapshot data
+      const snapshot = await adminSnapshotService.getSnapshot(snapshotId);
 
-  const handleVideoDeleteSuccess = (snapshotId: number, videoId: number) => {
-    setSnapshots(snapshots.map(s => {
-      if (s.id === snapshotId) {
-        return {
-          ...s,
-          videos: (s.videos || []).filter(v => v.id !== videoId)
-        };
+      if (!snapshot.snapshotData) {
+        alert('快照数据为空');
+        return;
       }
-      return s;
-    }));
-  };
 
-  const toggleExpand = (snapshotId: number) => {
-    setExpandedId(expandedId === snapshotId ? null : snapshotId);
+      // Store snapshot data in localStorage
+      localStorage.setItem('pendingSnapshotRestore', JSON.stringify(snapshot.snapshotData));
+
+      // Navigate to workspace
+      navigate('/workspace');
+    } catch (error) {
+      console.error('Failed to restore snapshot:', error);
+      alert(error instanceof Error ? error.message : '恢复失败');
+    }
   };
 
   const formatDate = (dateString: string): string => {
@@ -202,141 +216,239 @@ const AdminWorkSnapshots: React.FC = () => {
             <p className="text-gray-500">暂无工作记录</p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-2">
             {snapshots.map((snapshot) => {
-              const isExpanded = expandedId === snapshot.id;
               const isRestoring = restoreLoading === snapshot.id;
 
               return (
                 <div
                   key={snapshot.id}
-                  className="border border-gray-200 rounded-lg overflow-hidden"
+                  className="border border-gray-200 rounded p-3 hover:bg-gray-50"
                 >
-                  {/* Snapshot Header */}
-                  <div className="bg-gray-50 px-4 py-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center space-x-3">
-                          <h4 className="font-medium text-gray-900">
-                            {snapshot.snapshotName}
-                          </h4>
-                          <span className="text-sm text-gray-600 bg-white px-2 py-1 rounded">
-                            {snapshot.username}
-                          </span>
-                        </div>
-                        <p className="text-sm text-gray-600 mt-1">
-                          {formatDate(snapshot.createdAt)}
-                        </p>
-                        {snapshot.scriptPreview && (
-                          <p className="text-sm text-gray-500 mt-2 line-clamp-2">
-                            {snapshot.scriptPreview}...
-                          </p>
-                        )}
-                        <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
-                          <span>视频: {snapshot.videosCount || snapshot.videos?.length || 0}</span>
-                          <span>YouTube: {snapshot.youtubeLinksCount || snapshot.youtubeLinks?.length || 0}</span>
-                        </div>
-                      </div>
+                  <div className="flex items-center gap-4">
+                    {/* 用户名 */}
+                    <div className="flex-shrink-0 w-24">
+                      <p className="text-xs text-gray-500">用户</p>
+                      <p className="text-sm text-gray-900 truncate">{snapshot.username}</p>
+                    </div>
 
-                      <div className="flex items-center space-x-2 ml-4">
-                        <button
-                          onClick={() => handleRestore(snapshot.id)}
-                          disabled={isRestoring}
-                          className="flex items-center px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded disabled:opacity-50"
-                          title="查看工作状态"
-                        >
-                          <RotateCcw className={`w-4 h-4 mr-1 ${isRestoring ? 'animate-spin' : ''}`} />
-                          {isRestoring ? '加载中...' : '查看'}
-                        </button>
-                        <button
-                          onClick={() => toggleExpand(snapshot.id)}
-                          className="p-1.5 text-gray-400 hover:text-gray-600"
-                          title={isExpanded ? '收起' : '展开'}
-                        >
-                          {isExpanded ? (
-                            <ChevronUp className="w-5 h-5" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5" />
-                          )}
-                        </button>
+                    {/* 保存时间 */}
+                    <div className="flex-shrink-0 w-32">
+                      <p className="text-xs text-gray-500">保存时间</p>
+                      <p className="text-sm text-gray-900">{formatDate(snapshot.createdAt)}</p>
+                    </div>
+
+                    {/* 脚本名称 */}
+                    <div className="flex-shrink-0 w-40">
+                      <p className="text-xs text-gray-500">脚本名称</p>
+                      <p className="text-sm text-gray-900 truncate">{snapshot.snapshotName}</p>
+                    </div>
+
+                    {/* 视频列表与YouTube链接 */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-gray-500 mb-1">视频与YouTube链接</p>
+                      <div className="space-y-1">
+                        {snapshot.videos && snapshot.videos.length > 0 ? (
+                          snapshot.videos.map((video: any) => {
+                            // Find YouTube link for this video
+                            const youtubeLink = snapshot.youtubeLinks?.find((link: YouTubeLink) => link.videoId === video.id);
+
+                            return (
+                              <div key={video.id} className="flex items-center gap-2 text-xs">
+                                {/* Video download button */}
+                                <div className="flex items-center gap-1 px-2 py-1 bg-gray-100 rounded">
+                                  <button
+                                    onClick={() => handleDownloadVideo(video.videoUrl)}
+                                    className="text-blue-600 hover:underline truncate max-w-[100px] text-left"
+                                    title={`${video.videoUrl.split('/').pop()}\n${formatDate(video.uploadedAt)}`}
+                                  >
+                                    {video.videoUrl.split('/').pop()?.substring(0, 15)}...
+                                  </button>
+                                  <span className="text-gray-400">·</span>
+                                  <span className="text-gray-500">{formatDate(video.uploadedAt)}</span>
+                                </div>
+
+                                {/* YouTube link or Add button */}
+                                {youtubeLink ? (
+                                  <div className="flex items-center gap-1 px-2 py-1 bg-blue-50 rounded">
+                                    <a
+                                      href={youtubeLink.youtubeUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:underline truncate max-w-[120px]"
+                                      title={`${youtubeLink.youtubeUrl}\n${formatDate(youtubeLink.addedAt)}`}
+                                    >
+                                      {youtubeLink.youtubeUrl.substring(0, 25)}...
+                                    </a>
+                                    <button
+                                      onClick={() => handleDeleteYouTubeLink(video.id)}
+                                      className="ml-1 text-red-600 hover:text-red-800"
+                                      title="删除链接"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setAddYoutubeLinkModal({ isOpen: true, videoId: video.id })}
+                                    className="flex items-center px-2 py-1 text-xs text-green-600 hover:bg-green-50 rounded border border-green-300"
+                                  >
+                                    <Plus className="w-3 h-3 mr-1" />
+                                    添加YouTube链接
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <span className="text-xs text-gray-400">无视频</span>
+                        )}
                       </div>
+                    </div>
+
+                    {/* 操作按钮 */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => handleViewSnapshot(snapshot.id)}
+                        disabled={isRestoring}
+                        className="flex items-center px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded disabled:opacity-50"
+                        title="查看工作状态"
+                      >
+                        <RotateCcw className={`w-3 h-3 mr-1 ${isRestoring ? 'animate-spin' : ''}`} />
+                        {isRestoring ? '加载...' : '查看'}
+                      </button>
+                      <button
+                        onClick={() => handleRestoreToWorkspace(snapshot.id)}
+                        className="flex items-center px-2 py-1 text-xs font-medium text-green-600 hover:bg-green-50 rounded border border-green-300"
+                        title="恢复到我的工作区"
+                      >
+                        <RotateCcw className="w-3 h-3 mr-1" />
+                        恢复
+                      </button>
                     </div>
                   </div>
-
-                  {/* Expanded Content */}
-                  {isExpanded && (
-                    <div className="px-4 py-4 border-t border-gray-200 space-y-4">
-                      {/* Videos Section */}
-                      <div>
-                        <h5 className="text-sm font-semibold mb-2">用户上传的视频</h5>
-                        <VideoUploader
-                          snapshotId={snapshot.id}
-                          videos={snapshot.videos || []}
-                          onUploadSuccess={(video) => handleVideoUploadSuccess(snapshot.id, video)}
-                          onDeleteSuccess={(videoId) => handleVideoDeleteSuccess(snapshot.id, videoId)}
-                        />
-                      </div>
-
-                      {/* YouTube Links Section */}
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="text-sm font-semibold">YouTube 链接（仅管理员可见）</h5>
-                          <button
-                            onClick={() => setAddYoutubeLinkModal({ isOpen: true, snapshotId: snapshot.id })}
-                            className="flex items-center px-3 py-1 text-sm text-green-600 hover:bg-green-50 rounded border border-green-300"
-                          >
-                            <Plus className="w-3 h-3 mr-1" />
-                            添加链接
-                          </button>
-                        </div>
-
-                        {snapshot.youtubeLinks && snapshot.youtubeLinks.length > 0 ? (
-                          <div className="space-y-2">
-                            {snapshot.youtubeLinks.map((link: YouTubeLink) => (
-                              <div
-                                key={link.id}
-                                className="flex items-start justify-between p-3 bg-gray-50 rounded border border-gray-200"
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <a
-                                    href={link.youtubeUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-blue-600 hover:underline truncate block"
-                                  >
-                                    <LinkIcon className="w-3 h-3 inline mr-1" />
-                                    {link.youtubeUrl}
-                                  </a>
-                                  {link.notes && (
-                                    <p className="text-xs text-gray-600 mt-1">{link.notes}</p>
-                                  )}
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    添加于: {formatDate(link.addedAt)}
-                                    {link.addedByUsername && ` · ${link.addedByUsername}`}
-                                  </p>
-                                </div>
-                                <button
-                                  onClick={() => handleDeleteYouTubeLink(snapshot.id, link.id)}
-                                  className="ml-2 p-1 text-red-600 hover:bg-red-50 rounded"
-                                  title="删除链接"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-gray-500">暂无 YouTube 链接</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
                 </div>
               );
             })}
           </div>
         )}
       </div>
+
+      {/* View Snapshot Details Modal */}
+      {viewModal.isOpen && viewModal.snapshot?.snapshotData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">工作快照详情</h3>
+              <button onClick={() => setViewModal({ isOpen: false, snapshot: null })}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Basic Info */}
+              <div className="grid grid-cols-2 gap-4 pb-4 border-b">
+                <div>
+                  <label className="text-sm font-medium text-gray-500">用户</label>
+                  <p className="text-sm">{viewModal.snapshot.username}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">保存时间</label>
+                  <p className="text-sm">{formatDate(viewModal.snapshot.createdAt)}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">项目名称</label>
+                  <p className="text-sm">{viewModal.snapshot.snapshotData.projectName}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">AI模型</label>
+                  <p className="text-sm">{viewModal.snapshot.snapshotData.model || '未设置'}</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-500">画布比例</label>
+                  <p className="text-sm">{viewModal.snapshot.snapshotData.canvasState?.ratioTemplate || '未设置'}</p>
+                </div>
+              </div>
+
+              {/* Characters */}
+              {viewModal.snapshot.snapshotData.characters && viewModal.snapshot.snapshotData.characters.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">角色映射 ({viewModal.snapshot.snapshotData.characters.length})</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    {viewModal.snapshot.snapshotData.characters.map((char: any, idx: number) => (
+                      <div key={idx} className="flex items-center gap-2 p-2 bg-gray-50 rounded text-sm">
+                        <span className="font-medium">{char.scriptCharacter}</span>
+                        <span className="text-gray-400">→</span>
+                        <span>{char.characterName}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Frames */}
+              {viewModal.snapshot.snapshotData.frames && viewModal.snapshot.snapshotData.frames.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">分镜信息 ({viewModal.snapshot.snapshotData.frames.length})</h4>
+                  <div className="space-y-2">
+                    {viewModal.snapshot.snapshotData.frames.slice(0, 5).map((frame: any) => (
+                      <div key={frame.frame_number} className="p-2 bg-gray-50 rounded text-sm">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium">分镜 {frame.frame_number}</span>
+                          {frame.generated_image && (
+                            <span className="text-xs text-green-600">已生成图片</span>
+                          )}
+                        </div>
+                        {frame.generated_images && frame.generated_images.length > 0 && (
+                          <div className="text-xs text-gray-500">
+                            历史图片: {frame.generated_images.length} 张
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {viewModal.snapshot.snapshotData.frames.length > 5 && (
+                      <p className="text-sm text-gray-500 text-center">
+                        还有 {viewModal.snapshot.snapshotData.frames.length - 5} 个分镜...
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Script Preview */}
+              {viewModal.snapshot.snapshotData.script && viewModal.snapshot.snapshotData.script.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">脚本内容 ({viewModal.snapshot.snapshotData.script.length})</h4>
+                  <div className="space-y-2">
+                    {viewModal.snapshot.snapshotData.script.slice(0, 3).map((item: any) => (
+                      <div key={item.frame_number} className="p-2 bg-gray-50 rounded text-sm">
+                        <div className="font-medium mb-1">分镜 {item.frame_number}</div>
+                        <div className="text-xs text-gray-600 line-clamp-2">
+                          {item.prompt?.substring(0, 100)}...
+                        </div>
+                      </div>
+                    ))}
+                    {viewModal.snapshot.snapshotData.script.length > 3 && (
+                      <p className="text-sm text-gray-500 text-center">
+                        还有 {viewModal.snapshot.snapshotData.script.length - 3} 个脚本...
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setViewModal({ isOpen: false, snapshot: null })}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add YouTube Link Modal */}
       {addYoutubeLinkModal.isOpen && (
@@ -345,7 +457,7 @@ const AdminWorkSnapshots: React.FC = () => {
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-xl font-bold">添加 YouTube 链接</h3>
               <button onClick={() => {
-                setAddYoutubeLinkModal({ isOpen: false, snapshotId: null });
+                setAddYoutubeLinkModal({ isOpen: false, videoId: null });
                 setYoutubeForm({ youtubeUrl: '', notes: '' });
               }}>
                 <X className="w-5 h-5" />
@@ -378,7 +490,7 @@ const AdminWorkSnapshots: React.FC = () => {
               <div className="flex justify-end space-x-2">
                 <button
                   onClick={() => {
-                    setAddYoutubeLinkModal({ isOpen: false, snapshotId: null });
+                    setAddYoutubeLinkModal({ isOpen: false, videoId: null });
                     setYoutubeForm({ youtubeUrl: '', notes: '' });
                   }}
                   className="px-4 py-2 border rounded hover:bg-gray-100"
