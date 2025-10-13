@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store'
 import { useAuthStore } from '../store/authStore'
 import { API_URL } from '../config/api';
-import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye, Palette, Info, FileText } from 'lucide-react';
+import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye, Palette, Info, FileText, Clock } from 'lucide-react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import aiStylesData from '../../docs/AI出图风格.json';
 import costumeAttributesData from '../../../docs/服装属性.json';
 import costumeTypesData from '../../../docs/服装类型.json';
 import * as Tooltip from '@radix-ui/react-tooltip';
+import WorkSnapshotsModal from './WorkSnapshotsModal';
+import { snapshotService, type WorkSnapshotData } from '../services/snapshotService';
 
 interface ScriptFrame {
   id?: number;
@@ -71,7 +73,7 @@ const StoryboardWorkspace: React.FC = () => {
   const [generatingFrames, setGeneratingFrames] = useState<Set<number>>(new Set());
   const [generatingTimers, setGeneratingTimers] = useState<Map<number, number>>(new Map());
   const [expandedCharPreview, setExpandedCharPreview] = useState<string | null>(null);
-  const [originalScriptFrames, setOriginalScriptFrames] = useState<ScriptFrame[]>([]);
+  // const [originalScriptFrames, setOriginalScriptFrames] = useState<ScriptFrame[]>([]);
   const [characterModal, setCharacterModal] = useState<{
     isOpen: boolean;
     scriptChar: string | null;
@@ -95,6 +97,16 @@ const StoryboardWorkspace: React.FC = () => {
   const [scriptModalOpen, setScriptModalOpen] = useState(false);
   const [libraryScope, setLibraryScope] = useState<'mine' | 'system'>('mine');
   const [canAccessSystem, setCanAccessSystem] = useState(false);
+  const [saveScriptModalOpen, setSaveScriptModalOpen] = useState(false);
+  const [saveScriptForm, setSaveScriptForm] = useState({
+    name: '',
+    category: '',
+    videoUrl: ''
+  });
+  const [saving, setSaving] = useState(false);
+  const [scriptCategories, setScriptCategories] = useState<string[]>([]);
+  const [workSnapshotsModalOpen, setWorkSnapshotsModalOpen] = useState(false);
+  const [savingWorkSnapshot, setSavingWorkSnapshot] = useState(false);
   const aiStyles = aiStylesData.ai_video_styles.categories as StyleCategory[];
 
   useEffect(() => {
@@ -106,6 +118,11 @@ const StoryboardWorkspace: React.FC = () => {
       setCanAccessSystem(canAccess);
     }
   }, [user]);
+
+  useEffect(() => {
+    // Fetch script categories when component mounts
+    fetchScriptCategories();
+  }, []);
 
   useEffect(() => {
     // Load scripts and characters based on scope
@@ -289,7 +306,7 @@ const StoryboardWorkspace: React.FC = () => {
       
       setScriptFrames(framesWithOriginal);
       // Save original frames for reset functionality
-      setOriginalScriptFrames(JSON.parse(JSON.stringify(framesWithOriginal)));
+      // setOriginalScriptFrames(JSON.parse(JSON.stringify(framesWithOriginal)));
       
       // Auto-detect unique characters
       const uniqueChars = [...new Set(frames.map(f => f.character).filter(Boolean))];
@@ -337,10 +354,17 @@ const StoryboardWorkspace: React.FC = () => {
 
   // Get display text with character names replaced
   const getDisplayPrompt = (frame: ScriptFrame): string => {
+    // 如果没有执行过角色替换，直接返回原始 prompt
+    // 这样用户只是选择角色图片时，不会自动显示替换后的名称
+    if (!frame.originalPrompt) {
+      return frame.prompt;
+    }
+
+    // 已经执行过替换，显示替换后的内容
     let displayPrompt = frame.prompt;
     const promptToCheck = frame.originalPrompt || frame.prompt;
     const charactersInPrompt = extractCharactersFromPrompt(promptToCheck);
-    
+
     charactersInPrompt.forEach(scriptChar => {
       const charId = characterMapping[scriptChar];
       if (charId && charId !== 0) {
@@ -354,7 +378,7 @@ const StoryboardWorkspace: React.FC = () => {
         }
       }
     });
-    
+
     return displayPrompt;
   };
 
@@ -1674,16 +1698,312 @@ const StoryboardWorkspace: React.FC = () => {
     setScriptFrames(updatedFrames);
   };
 
-  // Reset character names to original
+  // Reset character names to original (A/B/C)
   const resetCharacterNames = () => {
-    setScriptFrames(JSON.parse(JSON.stringify(originalScriptFrames)));
+    const updatedFrames = scriptFrames.map(frame => {
+      let updatedPrompt = frame.prompt;
+
+      // 反向替换：真实角色名 → 脚本角色名(A/B/C)
+      Object.entries(characterMapping).forEach(([scriptChar, charId]) => {
+        if (charId && charId !== 0) {
+          const character = characters.find((c: any) => c.id === charId);
+          if (character) {
+            // 将真实角色名替换回脚本角色名
+            const regex = new RegExp(character.name, 'g');
+            updatedPrompt = updatedPrompt.replace(regex, scriptChar);
+          }
+        }
+      });
+
+      return {
+        ...frame,
+        prompt: updatedPrompt,
+        // 清除 originalPrompt，因为已经重置了
+        originalPrompt: undefined
+      };
+    });
+
+    setScriptFrames(updatedFrames);
+  };
+
+  // Clear all generated images
+  const clearAllImages = () => {
+    const confirmed = window.confirm('确定要清空所有已生成的图片吗？此操作不可恢复。');
+    if (!confirmed) return;
+
+    const updatedFrames = scriptFrames.map(frame => ({
+      ...frame,
+      generated_image: undefined,
+      generated_images: undefined,
+      status: undefined,
+      error: undefined,
+      errorDetails: undefined,
+      progress: undefined,
+    }));
+
+    setScriptFrames(updatedFrames);
+
+    // 清空生成相关的状态
+    setGeneratingFrames(new Set());
+    setGeneratingTimers(new Map());
+    setBatchProgress(null);
+  };
+
+  // Fetch script categories
+  const fetchScriptCategories = async () => {
+    try {
+      const response = await fetch(`${API_URL}/scripts/categories/list`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setScriptCategories(data.categories || []);
+      }
+    } catch (error) {
+      console.error('Failed to fetch categories:', error);
+    }
+  };
+
+  // URL validation function
+  const isValidUrl = (url: string): boolean => {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Handle save script
+  const handleSaveScript = async () => {
+    if (!saveScriptForm.name.trim()) {
+      alert('请输入脚本名称');
+      return;
+    }
+
+    // Validate video URL
+    if (saveScriptForm.videoUrl && !isValidUrl(saveScriptForm.videoUrl)) {
+      alert('请输入有效的视频链接');
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      // Prepare frames to save - reset character names and convert to CSV format
+      const framesToSave = scriptFrames.map(frame => {
+        let promptToSave = frame.prompt;
+
+        // Reset character names: 真实角色名 → 脚本角色名(A/B/C)
+        Object.entries(characterMapping).forEach(([scriptChar, charId]) => {
+          if (charId && charId !== 0) {
+            const character = characters.find((c: any) => c.id === charId);
+            if (character) {
+              // 将真实角色名替换回脚本角色名
+              const regex = new RegExp(character.name, 'g');
+              promptToSave = promptToSave.replace(regex, scriptChar);
+            }
+          }
+        });
+
+        return {
+          frame_number: frame.frame_number,
+          prompt: promptToSave,
+        };
+      });
+
+      // Convert to CSV format (简化为2列：序号,分镜描述)
+      const csvRows: string[] = [];
+
+      framesToSave.forEach(frame => {
+        // Escape commas and quotes in prompt field
+        const escapeCSV = (field: string) => {
+          const str = String(field);
+          if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return `"${str.replace(/"/g, '""')}"`;
+          }
+          return str;
+        };
+
+        const row = [
+          frame.frame_number,
+          escapeCSV(frame.prompt)
+        ].join(',');
+
+        csvRows.push(row);
+      });
+
+      const csvContent = csvRows.join('\n');
+
+      // Build request data
+      const scriptData = {
+        name: saveScriptForm.name.trim(),
+        category: saveScriptForm.category || '未分类',
+        video_link: saveScriptForm.videoUrl || null,
+        csv_content: csvContent
+      };
+
+      // Send save request
+      const response = await fetch(`${API_URL}/scripts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify(scriptData)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || '保存失败');
+      }
+
+      // const result = await response.json();
+
+      // Success notification and close modal
+      alert('脚本保存成功！');
+      setSaveScriptModalOpen(false);
+      setSaveScriptForm({ name: '', category: '', videoUrl: '' });
+
+      // Refresh script list
+      await fetchScripts(libraryScope);
+
+    } catch (error) {
+      console.error('Save script error:', error);
+      alert(error instanceof Error ? error.message : '保存脚本失败，请重试');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Handle save work snapshot
+  const handleSaveWorkSnapshot = async () => {
+    if (!selectedScript) {
+      alert('请先选择一个脚本');
+      return;
+    }
+
+    const snapshotName = prompt('请输入工作记录名称:',
+      `${new Date().toLocaleString('zh-CN')}-${selectedScript.name}`);
+
+    if (!snapshotName) return;
+
+    setSavingWorkSnapshot(true);
+    try {
+      // Prepare snapshot data
+      const snapshotData: WorkSnapshotData = {
+        projectId: selectedScript.id, // Use script ID as project ID
+        projectName: selectedScript.name,
+        script: scriptFrames.map(f => ({
+          frame_number: f.frame_number,
+          scene_number: f.scene_number,
+          prompt: f.prompt,
+          character: f.character,
+          action: f.action,
+          dialogue: f.dialogue,
+          notes: f.notes
+        })),
+        characters: Object.entries(characterMapping).map(([scriptChar, charId]) => {
+          const char = characters.find(c => c.id === charId);
+          return {
+            scriptCharacter: scriptChar,
+            characterId: charId,
+            characterName: char?.name,
+            characterImage: char?.image_url
+          };
+        }),
+        frames: scriptFrames.map(f => ({
+          frame_number: f.frame_number,
+          generated_image: f.generated_image,
+          generated_images: f.generated_images || [],
+          costume: f.costume || []
+        })),
+        canvasState: {
+          ratioTemplate: imageSize || '',
+          filledImages: {} // TODO: if there's canvas state, include it here
+        }
+      };
+
+      await snapshotService.createSnapshot(
+        selectedScript.id,
+        snapshotName,
+        snapshotData
+      );
+
+      alert('工作记录保存成功!');
+    } catch (error) {
+      console.error('Save work snapshot error:', error);
+      alert(error instanceof Error ? error.message : '保存工作记录失败，请重试');
+    } finally {
+      setSavingWorkSnapshot(false);
+    }
+  };
+
+  // Handle restore work snapshot
+  const handleRestoreWorkSnapshot = (snapshotData: WorkSnapshotData) => {
+    if (!confirm('恢复此工作将覆盖当前工作状态，确定继续吗？')) {
+      return;
+    }
+
+    try {
+      // Restore script
+      const script = scripts.find(s => s.id === snapshotData.projectId);
+      if (script) {
+        setSelectedScriptId(script.id.toString());
+        setSelectedScript(script);
+      }
+
+      // Restore frames
+      const restoredFrames: ScriptFrame[] = snapshotData.script.map((frame: any) => {
+        const frameData = snapshotData.frames.find(f => f.frame_number === frame.frame_number);
+        return {
+          ...frame,
+          generated_image: frameData?.generated_image,
+          generated_images: frameData?.generated_images || [],
+          costume: frameData?.costume || []
+        };
+      });
+      setScriptFrames(restoredFrames);
+
+      // Restore character mapping
+      const mapping: Record<string, number> = {};
+      snapshotData.characters.forEach((char: any) => {
+        if (char.scriptCharacter && char.characterId) {
+          mapping[char.scriptCharacter] = char.characterId;
+        }
+      });
+      setCharacterMapping(mapping);
+
+      // Restore canvas state
+      if (snapshotData.canvasState.ratioTemplate) {
+        setImageSize(snapshotData.canvasState.ratioTemplate);
+      }
+
+      alert('工作状态恢复成功!');
+      setWorkSnapshotsModalOpen(false);
+    } catch (error) {
+      console.error('Restore work snapshot error:', error);
+      alert(error instanceof Error ? error.message : '恢复工作状态失败，请重试');
+    }
   };
 
   return (
     <div className="space-y-6">
       {/* Script Selection */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-2xl font-bold mb-4">分镜工作台</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-2xl font-bold">分镜工作台</h2>
+          <button
+            onClick={() => setWorkSnapshotsModalOpen(true)}
+            className="flex items-center px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded border border-blue-300"
+            title="查看工作记录"
+          >
+            <Clock className="w-4 h-4 mr-2" />
+            工作记录
+          </button>
+        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div>
@@ -2120,6 +2440,28 @@ const StoryboardWorkspace: React.FC = () => {
             <h3 className="text-lg font-semibold">分镜表格</h3>
             <div className="space-x-2">
               <button
+                onClick={handleSaveWorkSnapshot}
+                disabled={savingWorkSnapshot}
+                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50"
+                title="保存当前工作状态（包括脚本、角色映射、生成的图片等）"
+              >
+                {savingWorkSnapshot ? '保存中...' : '保存工作'}
+              </button>
+              <button
+                onClick={() => {
+                  // Set default script name: current date-time + original script name
+                  const now = new Date();
+                  const dateStr = now.toISOString().slice(0, 16).replace('T', ' ');
+                  const defaultName = `${dateStr}-${selectedScript?.name || '未命名脚本'}`;
+                  setSaveScriptForm({ ...saveScriptForm, name: defaultName });
+                  setSaveScriptModalOpen(true);
+                }}
+                className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                title="保存当前脚本到脚本库"
+              >
+                保存脚本
+              </button>
+              <button
                 onClick={replaceCharacterNames}
                 className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
                 title="将脚本中的角色名称替换为映射的角色名称"
@@ -2132,6 +2474,13 @@ const StoryboardWorkspace: React.FC = () => {
                 title="重置为原始的角色名称"
               >
                 重置角色
+              </button>
+              <button
+                onClick={clearAllImages}
+                className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
+                title="清空所有已生成的图片"
+              >
+                清空图片
               </button>
               <button
                 onClick={generateAllImages}
@@ -3024,6 +3373,85 @@ const StoryboardWorkspace: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Save Script Modal */}
+      {saveScriptModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">保存脚本</h3>
+              <button onClick={() => setSaveScriptModalOpen(false)}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  脚本名称 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={saveScriptForm.name}
+                  onChange={(e) => setSaveScriptForm({ ...saveScriptForm, name: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="请输入脚本名称"
+                  maxLength={100}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">分类</label>
+                <select
+                  value={saveScriptForm.category}
+                  onChange={(e) => setSaveScriptForm({ ...saveScriptForm, category: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                >
+                  <option value="">未分类</option>
+                  {scriptCategories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">参考视频链接</label>
+                <input
+                  type="url"
+                  value={saveScriptForm.videoUrl}
+                  onChange={(e) => setSaveScriptForm({ ...saveScriptForm, videoUrl: e.target.value })}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="https://..."
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-4">
+                <button
+                  onClick={() => setSaveScriptModalOpen(false)}
+                  className="px-4 py-2 border rounded hover:bg-gray-50"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSaveScript}
+                  disabled={!saveScriptForm.name.trim() || saving}
+                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+                >
+                  {saving ? '保存中...' : '保存'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Work Snapshots Modal */}
+      <WorkSnapshotsModal
+        isOpen={workSnapshotsModalOpen}
+        onClose={() => setWorkSnapshotsModalOpen(false)}
+        projectId={selectedScript?.id || 0}
+        onRestore={handleRestoreWorkSnapshot}
+      />
     </div>
   );
 };

@@ -4,17 +4,10 @@ import { FileText, Users, ChevronRight, RefreshCw, TrendingUp, Calendar } from '
 interface UserStats {
   id: number;
   username: string;
-  email: string;
   role: string;
-  workspace_daily_limit: number;
-  character_daily_limit: number;
-  script_daily_limit: number;
   generation_daily_limit: number;
   created_at: string;
   total_submissions: number;
-  workspace_today: number;
-  character_today: number;
-  script_today: number;
   generation_today: number;
 }
 
@@ -23,18 +16,20 @@ interface SubmissionLog {
   submission_type: string;
   endpoint: string;
   request_data: string | null;
+  image_url: string | null;
   created_at: string;
+}
+
+interface AllSubmissionLog extends SubmissionLog {
+  user_id: number;
+  username: string;
 }
 
 interface UserDetail {
   user: {
     id: number;
     username: string;
-    email: string;
     role: string;
-    workspace_daily_limit: number;
-    character_daily_limit: number;
-    script_daily_limit: number;
     generation_daily_limit: number;
     created_at: string;
   };
@@ -51,14 +46,21 @@ const SubmissionStats: React.FC = () => {
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [userDetail, setUserDetail] = useState<UserDetail | null>(null);
   const [submissions, setSubmissions] = useState<SubmissionLog[]>([]);
+  const [allSubmissions, setAllSubmissions] = useState<AllSubmissionLog[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
-  const [view, setView] = useState<'users' | 'detail' | 'submissions'>('users');
+  const [loadingAllSubmissions, setLoadingAllSubmissions] = useState(false);
+  const [view, setView] = useState<'users' | 'detail' | 'submissions' | 'all-submissions'>('users');
   const [selectedType, setSelectedType] = useState<string | null>(null);
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [editingType, setEditingType] = useState<string | null>(null);
   const [newLimit, setNewLimit] = useState<number>(500);
+
+  // Filters for all submissions view
+  const [filterUserId, setFilterUserId] = useState<string>('');
+  const [filterStartDate, setFilterStartDate] = useState<string>('');
+  const [filterEndDate, setFilterEndDate] = useState<string>('');
 
   const submissionTypeNames: Record<string, string> = {
     workspace: 'Workspace保存',
@@ -82,9 +84,13 @@ const SubmissionStats: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
+        console.log('API Response:', data);
+        console.log('Users count:', data.users?.length || 0);
         setUsers(data.users || []);
       } else {
-        console.error('Failed to fetch users');
+        console.error('Failed to fetch users, status:', response.status);
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
       }
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -138,6 +144,34 @@ const SubmissionStats: React.FC = () => {
     }
   };
 
+  const fetchAllSubmissions = async () => {
+    setLoadingAllSubmissions(true);
+    try {
+      const params = new URLSearchParams();
+      if (filterUserId) params.append('userId', filterUserId);
+      if (filterStartDate) params.append('startDate', filterStartDate);
+      if (filterEndDate) params.append('endDate', filterEndDate);
+      params.append('limit', '100');
+
+      const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/admin/stats/submissions?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAllSubmissions(data.submissions || []);
+      } else {
+        console.error('Failed to fetch all submissions');
+      }
+    } catch (error) {
+      console.error('Error fetching all submissions:', error);
+    } finally {
+      setLoadingAllSubmissions(false);
+    }
+  };
+
   const updateDailyLimit = async (userId: number, type: string, limit: number) => {
     try {
       const response = await fetch(`https://aiyoutubebackendprod.email777.org/api/v1/admin/stats/users/${userId}/limit/${type}`, {
@@ -176,11 +210,18 @@ const SubmissionStats: React.FC = () => {
   const handleBack = () => {
     if (view === 'submissions') {
       setView('detail');
+    } else if (view === 'all-submissions') {
+      setView('users');
     } else {
       setView('users');
       setSelectedUserId(null);
       setUserDetail(null);
     }
+  };
+
+  const handleViewAllSubmissions = () => {
+    setView('all-submissions');
+    fetchAllSubmissions();
   };
 
   return (
@@ -192,6 +233,14 @@ const SubmissionStats: React.FC = () => {
             提交统计
           </h2>
           <div className="flex items-center space-x-2">
+            {view === 'users' && (
+              <button
+                onClick={handleViewAllSubmissions}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center"
+              >
+                查看所有提交
+              </button>
+            )}
             {view !== 'users' && (
               <button
                 onClick={handleBack}
@@ -205,11 +254,12 @@ const SubmissionStats: React.FC = () => {
                 if (view === 'users') fetchUsers();
                 else if (view === 'detail' && selectedUserId) fetchUserDetail(selectedUserId);
                 else if (view === 'submissions' && selectedUserId) fetchSubmissions(selectedUserId, selectedType || undefined);
+                else if (view === 'all-submissions') fetchAllSubmissions();
               }}
               className="p-2 text-gray-600 hover:text-blue-600"
               title="刷新"
             >
-              <RefreshCw className={`w-5 h-5 ${loading || loadingDetail || loadingSubmissions ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-5 h-5 ${loading || loadingDetail || loadingSubmissions || loadingAllSubmissions ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
@@ -232,23 +282,39 @@ const SubmissionStats: React.FC = () => {
                     <tr className="border-b">
                       <th className="text-left p-2">ID</th>
                       <th className="text-left p-2">用户名</th>
-                      <th className="text-left p-2">邮箱</th>
                       <th className="text-left p-2">角色</th>
-                      <th className="text-left p-2">Workspace</th>
-                      <th className="text-left p-2">角色图</th>
-                      <th className="text-left p-2">脚本</th>
-                      <th className="text-left p-2">生成</th>
+                      <th className="text-left p-2">图片生成</th>
                       <th className="text-left p-2">总量</th>
                       <th className="text-left p-2">操作</th>
                     </tr>
                   </thead>
                   <tbody>
                     {users.map((user) => {
-                      const renderLimitCell = (type: string, todayCount: number, limit: number) => {
-                        const isEditing = editingUserId === user.id && editingType === type;
-                        const percentage = (todayCount / limit) * 100;
+                      const isEditing = editingUserId === user.id && editingType === 'generation';
+                      const percentage = (user.generation_today / user.generation_daily_limit) * 100;
 
-                        return (
+                      return (
+                        <tr key={user.id} className="border-b hover:bg-gray-50">
+                          <td className="p-2">{user.id}</td>
+                          <td className="p-2">
+                            <button
+                              onClick={() => handleUserClick(user.id)}
+                              className="text-blue-600 hover:underline"
+                            >
+                              {user.username}
+                            </button>
+                          </td>
+                          <td className="p-2">
+                            <span className={`px-2 py-1 rounded text-xs ${
+                              user.role === 'admin' ? 'bg-red-100 text-red-600' :
+                              user.role === 'employee' ? 'bg-purple-100 text-purple-600' :
+                              'bg-blue-100 text-blue-600'
+                            }`}>
+                              {user.role === 'admin' ? '管理员' :
+                               user.role === 'employee' ? '员工' :
+                               '用户'}
+                            </span>
+                          </td>
                           <td className="p-2">
                             {isEditing ? (
                               <div className="flex items-center space-x-1">
@@ -260,7 +326,7 @@ const SubmissionStats: React.FC = () => {
                                   min="0"
                                 />
                                 <button
-                                  onClick={() => updateDailyLimit(user.id, type, newLimit)}
+                                  onClick={() => updateDailyLimit(user.id, 'generation', newLimit)}
                                   className="text-green-600 hover:text-green-700 text-xs"
                                 >
                                   ✓
@@ -283,13 +349,13 @@ const SubmissionStats: React.FC = () => {
                                     percentage >= 80 ? 'text-orange-600' :
                                     'text-green-600'
                                   }`}>
-                                    {todayCount}/{limit}
+                                    {user.generation_today}/{user.generation_daily_limit}
                                   </span>
                                   <button
                                     onClick={() => {
                                       setEditingUserId(user.id);
-                                      setEditingType(type);
-                                      setNewLimit(limit);
+                                      setEditingType('generation');
+                                      setNewLimit(user.generation_daily_limit);
                                     }}
                                     className="text-blue-600 hover:text-blue-700 text-xs"
                                   >
@@ -309,36 +375,6 @@ const SubmissionStats: React.FC = () => {
                               </div>
                             )}
                           </td>
-                        );
-                      };
-
-                      return (
-                        <tr key={user.id} className="border-b hover:bg-gray-50">
-                          <td className="p-2">{user.id}</td>
-                          <td className="p-2">
-                            <button
-                              onClick={() => handleUserClick(user.id)}
-                              className="text-blue-600 hover:underline"
-                            >
-                              {user.username}
-                            </button>
-                          </td>
-                          <td className="p-2 text-xs">{user.email}</td>
-                          <td className="p-2">
-                            <span className={`px-2 py-1 rounded text-xs ${
-                              user.role === 'admin' ? 'bg-red-100 text-red-600' :
-                              user.role === 'employee' ? 'bg-purple-100 text-purple-600' :
-                              'bg-blue-100 text-blue-600'
-                            }`}>
-                              {user.role === 'admin' ? '管理员' :
-                               user.role === 'employee' ? '员工' :
-                               '用户'}
-                            </span>
-                          </td>
-                          {renderLimitCell('workspace', user.workspace_today, user.workspace_daily_limit)}
-                          {renderLimitCell('character', user.character_today, user.character_daily_limit)}
-                          {renderLimitCell('script', user.script_today, user.script_daily_limit)}
-                          {renderLimitCell('generation', user.generation_today, user.generation_daily_limit)}
                           <td className="p-2">
                             <button
                               onClick={() => handleUserClick(user.id)}
@@ -381,32 +417,13 @@ const SubmissionStats: React.FC = () => {
                       <span className="font-semibold">{userDetail.user.username}</span>
                     </div>
                     <div>
-                      <span className="text-gray-600">邮箱：</span>
-                      <span>{userDetail.user.email}</span>
-                    </div>
-                    <div>
                       <span className="text-gray-600">角色：</span>
                       <span>{userDetail.user.role}</span>
                     </div>
                   </div>
-                  <h4 className="font-semibold text-md mb-2">每日限制</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-white rounded p-2">
-                      <div className="text-xs text-gray-600 mb-1">Workspace</div>
-                      <div className="font-semibold text-blue-600">{userDetail.user.workspace_daily_limit}</div>
-                    </div>
-                    <div className="bg-white rounded p-2">
-                      <div className="text-xs text-gray-600 mb-1">角色图</div>
-                      <div className="font-semibold text-blue-600">{userDetail.user.character_daily_limit}</div>
-                    </div>
-                    <div className="bg-white rounded p-2">
-                      <div className="text-xs text-gray-600 mb-1">脚本</div>
-                      <div className="font-semibold text-blue-600">{userDetail.user.script_daily_limit}</div>
-                    </div>
-                    <div className="bg-white rounded p-2">
-                      <div className="text-xs text-gray-600 mb-1">生成</div>
-                      <div className="font-semibold text-blue-600">{userDetail.user.generation_daily_limit}</div>
-                    </div>
+                  <div className="mt-4">
+                    <span className="text-gray-600">图片生成每日限制：</span>
+                    <span className="font-semibold text-blue-600">{userDetail.user.generation_daily_limit}</span>
                   </div>
                 </div>
 
@@ -513,30 +530,165 @@ const SubmissionStats: React.FC = () => {
                 <table className="w-full border-collapse">
                   <thead>
                     <tr className="border-b bg-gray-50">
-                      <th className="text-left p-3">ID</th>
-                      <th className="text-left p-3">类型</th>
-                      <th className="text-left p-3">接口</th>
-                      <th className="text-left p-3">请求数据</th>
+                      <th className="text-left p-3">生成图片</th>
+                      <th className="text-left p-3">请求参数</th>
                       <th className="text-left p-3">提交时间</th>
                     </tr>
                   </thead>
                   <tbody>
                     {submissions.map((submission) => (
                       <tr key={submission.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3">{submission.id}</td>
                         <td className="p-3">
-                          <span className="px-2 py-1 rounded text-xs bg-blue-100 text-blue-600">
-                            {submissionTypeNames[submission.submission_type] || submission.submission_type}
-                          </span>
+                          {submission.image_url ? (
+                            <img
+                              src={submission.image_url}
+                              alt="Generated"
+                              className="w-20 h-20 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={() => window.open(submission.image_url!, '_blank')}
+                              title="点击查看大图"
+                            />
+                          ) : (
+                            <div className="w-20 h-20 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-xs">
+                              无图片
+                            </div>
+                          )}
                         </td>
-                        <td className="p-3 text-sm text-gray-600">{submission.endpoint}</td>
                         <td className="p-3">
                           {submission.request_data ? (
                             <details className="cursor-pointer">
                               <summary className="text-blue-600 hover:underline text-sm">
                                 查看详情
                               </summary>
-                              <pre className="mt-2 text-xs bg-gray-50 p-2 rounded overflow-x-auto">
+                              <pre className="mt-2 text-xs bg-gray-50 p-2 rounded overflow-x-auto max-w-md">
+                                {JSON.stringify(JSON.parse(submission.request_data), null, 2)}
+                              </pre>
+                            </details>
+                          ) : (
+                            <span className="text-gray-400 text-sm">无</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-sm">
+                          {new Date(submission.created_at).toLocaleString('zh-CN')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === 'all-submissions' && (
+          <div>
+            <div className="mb-6">
+              <h3 className="font-semibold text-lg mb-4">所有用户提交记录</h3>
+
+              {/* Filters */}
+              <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      用户ID
+                    </label>
+                    <select
+                      value={filterUserId}
+                      onChange={(e) => setFilterUserId(e.target.value)}
+                      className="w-full border rounded px-3 py-2 text-sm"
+                    >
+                      <option value="">全部用户</option>
+                      {users.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.username} (ID: {user.id})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      开始日期
+                    </label>
+                    <input
+                      type="date"
+                      value={filterStartDate}
+                      onChange={(e) => setFilterStartDate(e.target.value)}
+                      className="w-full border rounded px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      结束日期
+                    </label>
+                    <input
+                      type="date"
+                      value={filterEndDate}
+                      onChange={(e) => setFilterEndDate(e.target.value)}
+                      className="w-full border rounded px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      onClick={fetchAllSubmissions}
+                      className="w-full bg-blue-500 text-white rounded px-4 py-2 hover:bg-blue-600 text-sm"
+                    >
+                      应用筛选
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {loadingAllSubmissions ? (
+              <div className="flex justify-center items-center py-20">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+              </div>
+            ) : allSubmissions.length === 0 ? (
+              <div className="text-center py-20 text-gray-500">
+                <FileText className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                <p>暂无提交记录</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b bg-gray-50">
+                      <th className="text-left p-3">用户</th>
+                      <th className="text-left p-3">生成图片</th>
+                      <th className="text-left p-3">请求参数</th>
+                      <th className="text-left p-3">提交时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allSubmissions.map((submission) => (
+                      <tr key={submission.id} className="border-b hover:bg-gray-50">
+                        <td className="p-3">
+                          <div>
+                            <div className="font-semibold text-sm">{submission.username}</div>
+                            <div className="text-xs text-gray-500">ID: {submission.user_id}</div>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          {submission.image_url ? (
+                            <img
+                              src={submission.image_url}
+                              alt="Generated"
+                              className="w-20 h-20 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={() => window.open(submission.image_url!, '_blank')}
+                              title="点击查看大图"
+                            />
+                          ) : (
+                            <div className="w-20 h-20 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-xs">
+                              无图片
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {submission.request_data ? (
+                            <details className="cursor-pointer">
+                              <summary className="text-blue-600 hover:underline text-sm">
+                                查看详情
+                              </summary>
+                              <pre className="mt-2 text-xs bg-gray-50 p-2 rounded overflow-x-auto max-w-md">
                                 {JSON.stringify(JSON.parse(submission.request_data), null, 2)}
                               </pre>
                             </details>
