@@ -146,19 +146,36 @@ const AdminWorkSnapshots: React.FC = () => {
     }
   };
 
+  const extractTimeFromSnapshotName = (snapshotName: string): string => {
+    // Extract time from snapshot name format: "ScriptName-YYYY-MM-DD HH:MM:SS"
+    const match = snapshotName.match(/(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{1,2})/);
+    if (match) {
+      // Convert format from "YYYY-MM-DD HH:MM" to "YYYY/MM/DD HH:MM"
+      return match[1].replace(/(\d{4})-(\d{2})-(\d{2})/, '$1/$2/$3');
+    }
+    return snapshotName;
+  };
+
+  const extractScriptNameOnly = (snapshotName: string): string => {
+    // Extract script name from format: "ScriptName-YYYY-MM-DD HH:MM:SS"
+    const match = snapshotName.match(/^(.+?)-\d{4}-\d{2}-\d{2}/);
+    if (match) {
+      return match[1];
+    }
+    return snapshotName;
+  };
+
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
     // Convert to Beijing time (UTC+8)
-    const beijingTime = new Date(date.getTime());
-    return beijingTime.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'Asia/Shanghai'
-    });
-  };;
+    const beijingTime = new Date(date.getTime() + 8 * 60 * 60 * 1000);
+    const year = beijingTime.getUTCFullYear();
+    const month = String(beijingTime.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(beijingTime.getUTCDate()).padStart(2, '0');
+    const hour = String(beijingTime.getUTCHours()).padStart(2, '0');
+    const minute = String(beijingTime.getUTCMinutes()).padStart(2, '0');
+    return `${year}/${month}/${day} ${hour}:${minute}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -239,13 +256,13 @@ const AdminWorkSnapshots: React.FC = () => {
                     {/* 保存时间 */}
                     <div className="flex-shrink-0 w-32">
                       <p className="text-xs text-gray-500">保存时间</p>
-                      <p className="text-sm text-gray-900">{formatDate(snapshot.createdAt)}</p>
+                      <p className="text-sm text-gray-900">{extractTimeFromSnapshotName(snapshot.snapshotName)}</p>
                     </div>
 
                     {/* 脚本名称 */}
                     <div className="flex-shrink-0 w-40">
                       <p className="text-xs text-gray-500">脚本名称</p>
-                      <p className="text-sm text-gray-900 truncate">{snapshot.snapshotName}</p>
+                      <p className="text-sm text-gray-900 truncate">{extractScriptNameOnly(snapshot.snapshotName)}</p>
                     </div>
 
                     {/* 视频列表与YouTube链接 */}
@@ -358,7 +375,7 @@ const AdminWorkSnapshots: React.FC = () => {
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-500">保存时间</label>
-                  <p className="text-sm">{formatDate(viewModal.snapshot.createdAt)}</p>
+                  <p className="text-sm">{extractTimeFromSnapshotName(viewModal.snapshot.snapshotName)}</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-500">项目名称</label>

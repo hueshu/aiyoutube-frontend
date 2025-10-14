@@ -1926,10 +1926,18 @@ const StoryboardWorkspace: React.FC = () => {
     const beijingTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
     const timeStr = beijingTime.toISOString().slice(0, 19).replace('T', ' ');
 
-    const snapshotName = prompt('请输入工作记录名称:',
-      `${selectedScript.name}-${timeStr}`);
+    // Auto-generate snapshot name without user input
+    const snapshotName = `${selectedScript.name}-${timeStr}`;
 
-    if (!snapshotName) return;
+    // Show confirmation dialog with the info
+    const confirmed = confirm(
+      `将保存当前工作状态：\n\n` +
+      `脚本名称: ${selectedScript.name}\n` +
+      `保存时间: ${timeStr}\n\n` +
+      `确定保存吗？`
+    );
+
+    if (!confirmed) return;
 
     setSavingWorkSnapshot(true);
     try {

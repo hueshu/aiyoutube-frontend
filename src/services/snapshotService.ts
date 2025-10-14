@@ -13,6 +13,13 @@ export interface WorkSnapshotData {
   model?: string; // AI model selection
 }
 
+export interface UserYouTubeLink {
+  id: number;
+  youtubeUrl: string;
+  notes?: string;
+  addedAt: string;
+}
+
 export interface WorkSnapshot {
   id: number;
   projectId: number;
@@ -23,6 +30,7 @@ export interface WorkSnapshot {
   scriptPreview?: string;
   videos: SnapshotVideo[];
   videosCount?: number;
+  userYoutubeLinks?: UserYouTubeLink[];
 }
 
 export interface SnapshotVideo {
@@ -188,6 +196,50 @@ export const snapshotService = {
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.error || 'Failed to delete video');
+    }
+  },
+
+  // Add user YouTube link to snapshot
+  async addUserYouTubeLink(
+    snapshotId: number,
+    youtubeUrl: string,
+    notes?: string
+  ): Promise<UserYouTubeLink> {
+    const response = await fetch(
+      `${API_BASE_URL}/snapshots/${snapshotId}/user-youtube-links`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ youtubeUrl, notes })
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to add YouTube link');
+    }
+
+    return response.json();
+  },
+
+  // Delete user YouTube link
+  async deleteUserYouTubeLink(snapshotId: number, linkId: number): Promise<void> {
+    const response = await fetch(
+      `${API_BASE_URL}/snapshots/${snapshotId}/user-youtube-links/${linkId}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to delete YouTube link');
     }
   }
 };
