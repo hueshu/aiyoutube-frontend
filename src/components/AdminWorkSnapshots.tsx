@@ -147,14 +147,18 @@ const AdminWorkSnapshots: React.FC = () => {
   };
 
   const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleString('zh-CN', {
+    const date = new Date(dateString);
+    // Convert to Beijing time (UTC+8)
+    const beijingTime = new Date(date.getTime());
+    return beijingTime.toLocaleString('zh-CN', {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      timeZone: 'Asia/Shanghai'
     });
-  };
+  };;
 
   return (
     <div className="space-y-6">

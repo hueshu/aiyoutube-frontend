@@ -1921,8 +1921,13 @@ const StoryboardWorkspace: React.FC = () => {
       return;
     }
 
+    // Generate Beijing time (UTC+8)
+    const now = new Date();
+    const beijingTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+    const timeStr = beijingTime.toISOString().slice(0, 19).replace('T', ' ');
+
     const snapshotName = prompt('请输入工作记录名称:',
-      `${new Date().toLocaleString('zh-CN')}-${selectedScript.name}`);
+      `${selectedScript.name}-${timeStr}`);
 
     if (!snapshotName) return;
 
@@ -1936,6 +1941,8 @@ const StoryboardWorkspace: React.FC = () => {
           frame_number: f.frame_number,
           scene_number: f.scene_number,
           prompt: f.prompt,
+          originalPrompt: f.originalPrompt, // Save originalPrompt
+          charactersInFrame: f.charactersInFrame, // Save charactersInFrame
           character: f.character,
           action: f.action,
           dialogue: f.dialogue,
@@ -1972,11 +1979,11 @@ const StoryboardWorkspace: React.FC = () => {
       alert('工作记录保存成功!');
     } catch (error) {
       console.error('Save work snapshot error:', error);
-      alert(error instanceof Error ? error.message : '保存工作记录失败，请重试');
+      alert(error instanceof Error ? error.message : '保存工作记录失败,请重试');
     } finally {
       setSavingWorkSnapshot(false);
     }
-  };
+  };;
 
   // Restore snapshot without confirmation (for admin restore or programmatic restore)
   const restoreSnapshotWithoutConfirm = async (snapshotData: WorkSnapshotData, isAdminRestore: boolean = false) => {
@@ -2051,13 +2058,15 @@ const StoryboardWorkspace: React.FC = () => {
             const frameData = snapshotData.frames.find(f => f.frame_number === frame.frame_number);
             return {
               ...frame,
+              originalPrompt: frame.originalPrompt, // Restore originalPrompt
+              charactersInFrame: frame.charactersInFrame, // Restore charactersInFrame
               generated_image: frameData?.generated_image,
               generated_images: frameData?.generated_images || [],
               costume: frameData?.costume || []
             };
           });
           setScriptFrames(restoredFrames);
-          console.log(`${messagePrefix} 已设置 scriptFrames`);
+          console.log(`${messagePrefix} 已设置 scriptFrames`, restoredFrames);
 
           // Restore character mapping
           const mapping: Record<string, number> = {};
