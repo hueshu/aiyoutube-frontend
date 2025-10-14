@@ -2090,43 +2090,79 @@ const StoryboardWorkspace: React.FC = () => {
           console.log(`${messagePrefix} 恢复完成!`);
 
           // Step 3: Reload characters to ensure character images can be displayed
-          // Use 'system' scope if restoring a system script, otherwise use current libraryScope
-          const characterScope = isSystemScript ? 'system' : libraryScope;
-          console.log(`${messagePrefix} 重新加载角色数据 (scope: ${characterScope})`);
-          fetchCharacters(characterScope).then(() => {
-            console.log(`${messagePrefix} 角色数据已重新加载`);
+          // If restoring a system script, we need to merge system characters with current scope
+          const reloadCharactersForRestore = async () => {
+            try {
+              if (isSystemScript) {
+                console.log(`${messagePrefix} 系统脚本恢复 - 开始合并角色数据`);
 
-            // Wait longer to ensure React state has updated
-            // Force UI update by re-setting characterMapping with the same values
-            // This triggers React to re-render the character mapping UI
-            setTimeout(() => {
-              // Get latest characters from store to ensure they're loaded
-              const latestCharacters = useStore.getState().characters;
-              console.log(`${messagePrefix} 最新角色数量: ${latestCharacters.length}`);
+                // First, load system characters to get the needed ones
+                await fetchCharacters('system');
+                await new Promise(resolve => setTimeout(resolve, 200));
+                const systemChars = useStore.getState().characters;
+                console.log(`${messagePrefix} 加载了 ${systemChars.length} 个系统角色`);
 
-              setCharacterMapping({...mapping});
-              console.log(`${messagePrefix} 强制更新角色映射UI`);
+                // Find which characters are needed for this snapshot
+                const neededCharIds = Object.values(mapping).filter(id => id > 0);
+                const neededChars = systemChars.filter(c => neededCharIds.includes(c.id));
+                console.log(`${messagePrefix} 需要 ${neededChars.length} 个系统角色用于映射`);
 
-              // Show success message after forced update
+                // Reload current scope characters
+                await fetchCharacters(libraryScope);
+                await new Promise(resolve => setTimeout(resolve, 200));
+                const currentChars = useStore.getState().characters;
+                console.log(`${messagePrefix} 加载了 ${currentChars.length} 个当前范围角色`);
+
+                // Merge: add needed system characters if not already present
+                const mergedChars = [...currentChars];
+                neededChars.forEach(systemChar => {
+                  if (!mergedChars.find(c => c.id === systemChar.id)) {
+                    mergedChars.push(systemChar);
+                    console.log(`${messagePrefix} 合并系统角色: ${systemChar.name} (ID: ${systemChar.id})`);
+                  }
+                });
+
+                // Update store with merged characters
+                useStore.setState({ characters: mergedChars });
+                console.log(`${messagePrefix} 合并后共 ${mergedChars.length} 个角色`);
+              } else {
+                // For non-system scripts, just reload current scope
+                console.log(`${messagePrefix} 普通脚本恢复 - 重新加载角色数据 (scope: ${libraryScope})`);
+                await fetchCharacters(libraryScope);
+                await new Promise(resolve => setTimeout(resolve, 200));
+                const chars = useStore.getState().characters;
+                console.log(`${messagePrefix} 加载了 ${chars.length} 个角色`);
+              }
+
+              // Force UI update by re-setting characterMapping
+              setTimeout(() => {
+                setCharacterMapping({...mapping});
+                console.log(`${messagePrefix} 强制更新角色映射UI`);
+
+                // Show success message
+                setTimeout(() => {
+                  if (isAdminRestore) {
+                    alert('管理员已成功恢复用户工作快照');
+                  } else {
+                    alert('工作状态恢复成功!');
+                  }
+                }, 100);
+              }, 200);
+
+            } catch (error) {
+              console.error(`${messagePrefix} 重新加载角色失败:`, error);
+              // Still show success message even if character reload fails
               setTimeout(() => {
                 if (isAdminRestore) {
-                  alert('管理员已成功恢复用户工作快照');
+                  alert('管理员已成功恢复用户工作快照\n(部分角色图片可能需要手动刷新)');
                 } else {
-                  alert('工作状态恢复成功!');
+                  alert('工作状态恢复成功!\n(部分角色图片可能需要手动刷新)');
                 }
               }, 100);
-            }, 300); // Increased from 100ms to 300ms
-          }).catch((error) => {
-            console.error(`${messagePrefix} 重新加载角色失败:`, error);
-            // Still show success message even if character reload fails
-            setTimeout(() => {
-              if (isAdminRestore) {
-                alert('管理员已成功恢复用户工作快照\n(部分角色图片可能需要手动刷新)');
-              } else {
-                alert('工作状态恢复成功!\n(部分角色图片可能需要手动刷新)');
-              }
-            }, 100);
-          });
+            }
+          };
+
+          reloadCharactersForRestore();
         } catch (error) {
           console.error(`${messagePrefix} 延迟恢复阶段失败:`, error);
           alert(error instanceof Error ? error.message : '恢复工作状态失败，请重试');
@@ -2282,15 +2318,7 @@ const StoryboardWorkspace: React.FC = () => {
                 f.charactersInFrame || extractCharactersFromPrompt(f.originalPrompt || f.prompt)
               )
             )].map(scriptChar => {
-              // Try to find character in current scope first
-              let selectedCharacter = characters.find((c: any) => c.id === characterMapping[scriptChar]);
-
-              // If not found and we have a mapping, try to get from store directly
-              // This handles the case where we restored a system script but component is in 'mine' scope
-              if (!selectedCharacter && characterMapping[scriptChar]) {
-                const allCharacters = useStore.getState().characters;
-                selectedCharacter = allCharacters.find((c: any) => c.id === characterMapping[scriptChar]);
-              }
+              const selectedCharacter = characters.find((c: any) => c.id === characterMapping[scriptChar]);
 
               return (
                 <div 
