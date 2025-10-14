@@ -2090,32 +2090,45 @@ const StoryboardWorkspace: React.FC = () => {
           console.log(`${messagePrefix} 恢复完成!`);
 
           // Step 3: Reload characters to ensure character images can be displayed
-          // If restoring a system script, we need to merge system characters with current scope
+          // Check if we need to load system characters by examining the character IDs in mapping
           const reloadCharactersForRestore = async () => {
             try {
-              if (isSystemScript) {
-                console.log(`${messagePrefix} 系统脚本恢复 - 开始合并角色数据`);
+              // Get needed character IDs from mapping
+              const neededCharIds = Object.values(mapping).filter(id => id > 0);
+              console.log(`${messagePrefix} 需要的角色ID:`, neededCharIds);
 
-                // First, load system characters to get the needed ones
+              // First load current scope characters
+              await fetchCharacters(libraryScope);
+              await new Promise(resolve => setTimeout(resolve, 200));
+              let currentChars = useStore.getState().characters;
+              console.log(`${messagePrefix} 当前范围角色数量: ${currentChars.length}`);
+
+              // Check if all needed characters are available in current scope
+              const missingCharIds = neededCharIds.filter(id => !currentChars.find(c => c.id === id));
+              console.log(`${messagePrefix} 缺失的角色ID:`, missingCharIds);
+
+              // If some characters are missing and this is a system script OR we need system characters
+              if (missingCharIds.length > 0 && (isSystemScript || libraryScope !== 'system')) {
+                console.log(`${messagePrefix} 需要加载系统角色来补充缺失的角色`);
+
+                // Load system characters to get the missing ones
                 await fetchCharacters('system');
                 await new Promise(resolve => setTimeout(resolve, 200));
                 const systemChars = useStore.getState().characters;
                 console.log(`${messagePrefix} 加载了 ${systemChars.length} 个系统角色`);
 
-                // Find which characters are needed for this snapshot
-                const neededCharIds = Object.values(mapping).filter(id => id > 0);
-                const neededChars = systemChars.filter(c => neededCharIds.includes(c.id));
-                console.log(`${messagePrefix} 需要 ${neededChars.length} 个系统角色用于映射`);
+                // Get the missing characters from system scope
+                const missingChars = systemChars.filter(c => missingCharIds.includes(c.id));
+                console.log(`${messagePrefix} 从系统角色中找到 ${missingChars.length} 个缺失的角色`);
 
                 // Reload current scope characters
                 await fetchCharacters(libraryScope);
                 await new Promise(resolve => setTimeout(resolve, 200));
-                const currentChars = useStore.getState().characters;
-                console.log(`${messagePrefix} 加载了 ${currentChars.length} 个当前范围角色`);
+                currentChars = useStore.getState().characters;
 
-                // Merge: add needed system characters if not already present
+                // Merge: add missing system characters to current scope
                 const mergedChars = [...currentChars];
-                neededChars.forEach(systemChar => {
+                missingChars.forEach(systemChar => {
                   if (!mergedChars.find(c => c.id === systemChar.id)) {
                     mergedChars.push(systemChar);
                     console.log(`${messagePrefix} 合并系统角色: ${systemChar.name} (ID: ${systemChar.id})`);
@@ -2126,12 +2139,7 @@ const StoryboardWorkspace: React.FC = () => {
                 useStore.setState({ characters: mergedChars });
                 console.log(`${messagePrefix} 合并后共 ${mergedChars.length} 个角色`);
               } else {
-                // For non-system scripts, just reload current scope
-                console.log(`${messagePrefix} 普通脚本恢复 - 重新加载角色数据 (scope: ${libraryScope})`);
-                await fetchCharacters(libraryScope);
-                await new Promise(resolve => setTimeout(resolve, 200));
-                const chars = useStore.getState().characters;
-                console.log(`${messagePrefix} 加载了 ${chars.length} 个角色`);
+                console.log(`${messagePrefix} 所有需要的角色都在当前范围内，无需加载额外角色`);
               }
 
               // Force UI update by re-setting characterMapping
