@@ -2007,7 +2007,6 @@ const StoryboardWorkspace: React.FC = () => {
 
       // Find script in current scope
       let script = currentScripts.find(s => s.id === snapshotData.projectId);
-      let isSystemScript = false; // Track if this is a system script
 
       // If not found in current scope, try loading system scripts
       if (!script && libraryScope !== 'system') {
@@ -2021,7 +2020,6 @@ const StoryboardWorkspace: React.FC = () => {
           script = currentScripts.find(s => s.id === snapshotData.projectId);
           if (script) {
             console.log(`${messagePrefix} 在系统脚本中找到了目标脚本`);
-            isSystemScript = true; // Mark as system script
           }
         } catch (error) {
           console.error(`${messagePrefix} 加载系统脚本失败:`, error);
@@ -2035,12 +2033,8 @@ const StoryboardWorkspace: React.FC = () => {
         return;
       }
 
-      // Check if this is a system script by user_id (system scripts have user_id = 0)
-      // Override the flag based on the actual script object
-      if (script.user_id === 0) {
-        isSystemScript = true;
-        console.log(`${messagePrefix} 检测到系统脚本 (user_id = 0)`);
-      }
+      // Log script info for debugging
+      console.log(`${messagePrefix} 使用脚本:`, { id: script.id, name: script.name, user_id: script.user_id });
 
       // Step 1: Set script first
       setSelectedScriptId(script.id.toString());
@@ -2090,7 +2084,7 @@ const StoryboardWorkspace: React.FC = () => {
           console.log(`${messagePrefix} 恢复完成!`);
 
           // Step 3: Reload characters to ensure character images can be displayed
-          // Check if we need to load system characters by examining the character IDs in mapping
+          // Check if we need to load characters from another scope by examining the character IDs in mapping
           const reloadCharactersForRestore = async () => {
             try {
               // Get needed character IDs from mapping
@@ -2101,37 +2095,38 @@ const StoryboardWorkspace: React.FC = () => {
               await fetchCharacters(libraryScope);
               await new Promise(resolve => setTimeout(resolve, 200));
               let currentChars = useStore.getState().characters;
-              console.log(`${messagePrefix} 当前范围角色数量: ${currentChars.length}`);
+              console.log(`${messagePrefix} 当前范围 (${libraryScope}) 角色数量: ${currentChars.length}`);
 
               // Check if all needed characters are available in current scope
               const missingCharIds = neededCharIds.filter(id => !currentChars.find(c => c.id === id));
               console.log(`${messagePrefix} 缺失的角色ID:`, missingCharIds);
 
-              // If some characters are missing and this is a system script OR we need system characters
-              if (missingCharIds.length > 0 && (isSystemScript || libraryScope !== 'system')) {
-                console.log(`${messagePrefix} 需要加载系统角色来补充缺失的角色`);
+              // If some characters are missing, try to load from the other scope
+              if (missingCharIds.length > 0) {
+                const otherScope = libraryScope === 'system' ? 'mine' : 'system';
+                console.log(`${messagePrefix} 尝试从另一个范围 (${otherScope}) 加载缺失的角色`);
 
-                // Load system characters to get the missing ones
-                await fetchCharacters('system');
+                // Load characters from the other scope
+                await fetchCharacters(otherScope);
                 await new Promise(resolve => setTimeout(resolve, 200));
-                const systemChars = useStore.getState().characters;
-                console.log(`${messagePrefix} 加载了 ${systemChars.length} 个系统角色`);
+                const otherChars = useStore.getState().characters;
+                console.log(`${messagePrefix} 从 ${otherScope} 加载了 ${otherChars.length} 个角色`);
 
-                // Get the missing characters from system scope
-                const missingChars = systemChars.filter(c => missingCharIds.includes(c.id));
-                console.log(`${messagePrefix} 从系统角色中找到 ${missingChars.length} 个缺失的角色`);
+                // Get the missing characters from other scope
+                const missingChars = otherChars.filter(c => missingCharIds.includes(c.id));
+                console.log(`${messagePrefix} 从 ${otherScope} 中找到 ${missingChars.length} 个缺失的角色`);
 
                 // Reload current scope characters
                 await fetchCharacters(libraryScope);
                 await new Promise(resolve => setTimeout(resolve, 200));
                 currentChars = useStore.getState().characters;
 
-                // Merge: add missing system characters to current scope
+                // Merge: add missing characters from other scope to current scope
                 const mergedChars = [...currentChars];
-                missingChars.forEach(systemChar => {
-                  if (!mergedChars.find(c => c.id === systemChar.id)) {
-                    mergedChars.push(systemChar);
-                    console.log(`${messagePrefix} 合并系统角色: ${systemChar.name} (ID: ${systemChar.id})`);
+                missingChars.forEach(char => {
+                  if (!mergedChars.find(c => c.id === char.id)) {
+                    mergedChars.push(char);
+                    console.log(`${messagePrefix} 合并来自 ${otherScope} 的角色: ${char.name} (ID: ${char.id})`);
                   }
                 });
 
