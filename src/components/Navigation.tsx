@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { Home, FileText, Users, Palette, Folder, Shield, LogOut, FileSearch, Settings, BookOpen, ChevronDown, Music, Video, Image as ImageIcon } from 'lucide-react';
+import { Home, FileText, Users, Palette, Shield, LogOut, FileSearch, Settings, BookOpen, ChevronDown, Music, Video, Image as ImageIcon } from 'lucide-react';
 
 const Navigation: React.FC = () => {
   const location = useLocation();
@@ -13,10 +13,20 @@ const Navigation: React.FC = () => {
 
   const navItems = [
     { path: '/', label: '首页', icon: Home },
-    { path: '/projects', label: '项目管理', icon: Folder },
-    { path: '/logs', label: '日志监控', icon: FileSearch },
-    { path: '/settings', label: '设置', icon: Settings },
   ];
+
+  // 日志监控仅管理员可见
+  if (user?.role === 'admin') {
+    navItems.push({ path: '/logs', label: '日志监控', icon: FileSearch });
+  }
+
+  // 设置放到最后
+  navItems.push({ path: '/settings', label: '设置', icon: Settings });
+
+  // 管理面板（管理员）
+  if (user?.role === 'admin') {
+    navItems.push({ path: '/admin', label: '管理面板', icon: Shield });
+  }
 
   const imageGenItems = [
     { path: '/workspace', label: '生成分镜图', icon: Palette },
@@ -35,10 +45,6 @@ const Navigation: React.FC = () => {
     { path: '/benchmark-videos', label: '对标视频库', icon: Video },
   ];
 
-  if (user?.role === 'admin') {
-    navItems.push({ path: '/admin', label: '管理面板', icon: Shield });
-  }
-
   const handleLogout = () => {
     if (confirm('确定要退出登录吗？')) {
       logout();
@@ -55,7 +61,7 @@ const Navigation: React.FC = () => {
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center space-x-8">
-            <h1 className="text-xl font-bold text-blue-600">AIYOUTUBE</h1>
+            <h1 className="text-xl font-bold text-blue-600">StoryGo.net</h1>
             <div className="flex space-x-4">
               {navItems.map((item) => {
                 const Icon = item.icon;
