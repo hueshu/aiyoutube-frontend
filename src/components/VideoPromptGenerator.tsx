@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown, Users, RefreshCw, Link, Unlink } from 'lucide-react';
+import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown, Users, RefreshCw, Link, Unlink, Video, Clock } from 'lucide-react';
 import { API_URL } from '../config/api';
+import {
+  uploadImage,
+  submitBatchTasks,
+  regenerateTask,
+  pollTasksStatus
+} from '../services/hailuoTasksService';
 
 interface ImagePrompt {
   id: string;
@@ -141,6 +147,30 @@ const VideoPromptGenerator: React.FC = () => {
   const [showCharacterReplacer, setShowCharacterReplacer] = useState(false);
   const [detectedCharacters, setDetectedCharacters] = useState<string[]>([]);
   const [hasImportedFromScript, setHasImportedFromScript] = useState(false);
+
+  // Hailuo video generation states
+  const [hailuoTasks, setHailuoTasks] = useState<Map<string, string>>(new Map()); // imageId -> taskId mapping
+  const [taskStatuses, setTaskStatuses] = useState<Map<string, any>>(new Map()); // taskId -> task status
+  const [isSubmittingTasks, setIsSubmittingTasks] = useState(false);
+  const [pollingInterval, setPollingInterval] = useState<ReturnType<typeof setInterval> | null>(null);
+
+  // Modal states for batch video generation
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [taskCount, setTaskCount] = useState(0);
+  const [successTaskCount, setSuccessTaskCount] = useState(0);
+
+  // Modal states for single video regeneration
+  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [showRegenerateProgress, setShowRegenerateProgress] = useState(false);
+  const [showRegenerateSuccess, setShowRegenerateSuccess] = useState(false);
+  const [showRegenerateError, setShowRegenerateError] = useState(false);
+  const [regenerateImageId, setRegenerateImageId] = useState<string | null>(null);
+  const [regenerateErrorMessage, setRegenerateErrorMessage] = useState('');
+
+  // Modal state for batch download confirmation
+  const [showBatchDownloadConfirm, setShowBatchDownloadConfirm] = useState(false);
 
   // Load scripts when component mounts or scope changes
   useEffect(() => {
@@ -884,8 +914,509 @@ const VideoPromptGenerator: React.FC = () => {
     alert('角色替换完成！');
   };
 
+  /**
+   * Upload images to R2 and get URLs
+   */
+  const uploadImagesToR2 = async () => {
+    const uploadPromises = images.map(async (img) => {
+      try {
+        const { imageUrl } = await uploadImage(img.file);
+        return { id: img.id, imageUrl };
+      } catch (error) {
+        console.error('Upload failed for', img.name, error);
+        return { id: img.id, imageUrl: null };
+      }
+    });
+
+    const results = await Promise.all(uploadPromises);
+    return results.filter(r => r.imageUrl !== null);
+  };
+
+  /**
+   * Handle batch video generation - Step 1: Show confirmation modal
+   */
+  const handleBatchGenerateVideos = async () => {
+    if (images.length === 0) {
+      alert('请先上传图片');
+      return;
+    }
+
+    // Check if prompts are generated
+    const missingPrompts = images.filter(img => {
+      // Images with downLink are head frames and need prompts
+      // Images without upLink or downLink are standalone and need prompts
+      // Images with ONLY upLink (tail frames) don't need prompts
+      const isTailFrameOnly = img.upLink && !img.downLink;
+      if (isTailFrameOnly) return false;
+      // Check other images for prompts
+      return !img.generatedPrompt;
+    });
+
+    // Debug: Log missing prompts info
+    console.log('=== Validation Debug ===');
+    console.log('Total images:', images.length);
+    images.forEach((img, index) => {
+      console.log(`Image ${index + 1} (${img.name}):`, {
+        upLink: img.upLink ? 'Yes' : 'No',
+        downLink: img.downLink ? 'Yes' : 'No',
+        hasPrompt: img.generatedPrompt ? 'Yes' : 'No',
+        isTailOnly: (img.upLink && !img.downLink) ? 'Yes' : 'No'
+      });
+    });
+    console.log('Missing prompts count:', missingPrompts.length);
+    console.log('Missing prompt images:', missingPrompts.map(img => img.name));
+
+    if (missingPrompts.length > 0) {
+      alert(`有 ${missingPrompts.length} 张图片还没有生成提示词，请先生成提示词`);
+      return;
+    }
+
+    // Calculate task count
+    const count = images.filter(img => !(img.upLink && !img.downLink)).length;
+    setTaskCount(count);
+
+    // Show confirmation modal
+    setShowConfirmModal(true);
+  };
+
+  /**
+   * Handle batch video generation - Step 2: Execute submission
+   */
+  const executeSubmission = async () => {
+    // Hide confirm modal and show progress modal
+    setShowConfirmModal(false);
+    setShowProgressModal(true);
+    setIsSubmittingTasks(true);
+
+    try {
+      // Step 1: Upload images to R2
+      const uploadedImages = await uploadImagesToR2();
+
+      if (uploadedImages.length === 0) {
+        setShowProgressModal(false);
+        alert('图片上传失败，请重试');
+        setIsSubmittingTasks(false);
+        return;
+      }
+
+      // Step 2: Build tasks array
+      const tasks = [];
+
+      for (const img of images) {
+        // Skip tail frames (they're processed with head frames)
+        if (img.upLink && !img.downLink) continue;
+
+        const uploadedImg = uploadedImages.find(u => u.id === img.id);
+        if (!uploadedImg) continue;
+
+        const isPaired = !!img.downLink;
+        const tailImage = isPaired ? images.find(i => i.id === img.downLink) : null;
+        const uploadedTailImg = isPaired && tailImage ? uploadedImages.find(u => u.id === tailImage.id) : null;
+
+        const imageUrls = isPaired && uploadedTailImg
+          ? [uploadedImg.imageUrl, uploadedTailImg.imageUrl]
+          : [uploadedImg.imageUrl];
+
+        tasks.push({
+          imageUrls,
+          promptCn: img.generatedPrompt,
+          promptEn: img.translatedPrompt,
+          imageCount: imageUrls.length
+        });
+      }
+
+      // Step 3: Submit tasks
+      const { taskIds } = await submitBatchTasks(tasks);
+
+      // Map image IDs to task IDs
+      let taskIndex = 0;
+      const newMapping = new Map(hailuoTasks);
+      for (const img of images) {
+        if (img.upLink && !img.downLink) continue; // Skip tail frames
+        if (taskIndex < taskIds.length) {
+          newMapping.set(img.id, taskIds[taskIndex]);
+          taskIndex++;
+        }
+      }
+      setHailuoTasks(newMapping);
+
+      // Step 4: Start polling
+      startPollingTasks(taskIds);
+
+      // Hide progress modal and show success modal
+      setShowProgressModal(false);
+      setSuccessTaskCount(taskIds.length);
+      setShowSuccessModal(true);
+    } catch (error: any) {
+      console.error('Batch generate error:', error);
+      setShowProgressModal(false);
+      alert(`提交失败: ${error.message}`);
+    } finally {
+      setIsSubmittingTasks(false);
+    }
+  };
+
+  /**
+   * Start polling tasks status
+   */
+  const startPollingTasks = (taskIds: string[]) => {
+    // Clear existing interval
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+    }
+
+    const pollTasks = async () => {
+      try {
+        const tasks = await pollTasksStatus(taskIds);
+        const newStatuses = new Map(taskStatuses);
+        tasks.forEach(task => {
+          newStatuses.set(task.taskId, task);
+        });
+        setTaskStatuses(newStatuses);
+
+        // Check if all tasks are completed or failed
+        const allDone = tasks.every(t => t.status === 'completed' || t.status === 'failed');
+        if (allDone && pollingInterval) {
+          clearInterval(pollingInterval);
+          setPollingInterval(null);
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    };
+
+    // Poll immediately
+    pollTasks();
+
+    // Poll every 5 seconds
+    const interval = setInterval(pollTasks, 5000);
+    setPollingInterval(interval);
+  };
+
+  /**
+   * Handle regenerate video for single image - Step 1: Show confirmation
+   */
+  const handleRegenerateVideo = (imageId: string) => {
+    setRegenerateImageId(imageId);
+    setShowRegenerateConfirm(true);
+  };
+
+  /**
+   * Execute regenerate video - Step 2: Execute submission
+   */
+  const executeRegenerateVideo = async () => {
+    if (!regenerateImageId) return;
+
+    const img = images.find(i => i.id === regenerateImageId);
+    if (!img || !img.generatedPrompt) return;
+
+    // Hide confirm modal and show progress modal
+    setShowRegenerateConfirm(false);
+    setShowRegenerateProgress(true);
+
+    try {
+      // Upload image if not already uploaded
+      const uploadedImages = await uploadImagesToR2();
+      const uploadedImg = uploadedImages.find(u => u.id === regenerateImageId);
+      if (!uploadedImg) {
+        throw new Error('图片上传失败');
+      }
+
+      const isPaired = !!img.downLink;
+      const tailImage = isPaired ? images.find(i => i.id === img.downLink) : null;
+      const uploadedTailImg = isPaired && tailImage ? uploadedImages.find(u => u.id === tailImage.id) : null;
+
+      const imageUrls = isPaired && uploadedTailImg
+        ? [uploadedImg.imageUrl, uploadedTailImg.imageUrl]
+        : [uploadedImg.imageUrl];
+
+      const { taskId } = await regenerateTask({
+        imageUrls,
+        promptCn: img.generatedPrompt,
+        promptEn: img.translatedPrompt,
+        imageCount: imageUrls.length
+      });
+
+      // Update mapping
+      const newMapping = new Map(hailuoTasks);
+      newMapping.set(regenerateImageId, taskId);
+      setHailuoTasks(newMapping);
+
+      // Start polling this task
+      startPollingTasks([taskId]);
+
+      // Hide progress modal and show success modal
+      setShowRegenerateProgress(false);
+      setShowRegenerateSuccess(true);
+    } catch (error: any) {
+      console.error('Regenerate error:', error);
+      setShowRegenerateProgress(false);
+      setRegenerateErrorMessage(error.message || '重新生成失败');
+      setShowRegenerateError(true);
+    }
+  };
+
+  /**
+   * Handle batch download videos
+   */
+  const handleBatchDownloadVideos = async () => {
+    let downloadCount = 0;
+
+    for (const [imageId, taskId] of hailuoTasks.entries()) {
+      const task = taskStatuses.get(taskId);
+      if (task && task.status === 'completed' && task.videoUrl) {
+        try {
+          // Download video
+          const response = await fetch(task.videoUrl);
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+
+          const img = images.find(i => i.id === imageId);
+          const prompt = img?.generatedPrompt || 'video';
+          const cleanPrompt = prompt.substring(0, 50).replace(/[/\\:*?\"<>|]/g, '_');
+
+          a.href = url;
+          a.download = `${cleanPrompt}.mp4`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+
+          downloadCount++;
+
+          // Add delay between downloads
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (error) {
+          console.error('Download failed for', imageId, error);
+        }
+      }
+    }
+
+    if (downloadCount === 0) {
+      alert('没有可下载的视频');
+    } else {
+      alert(`成功下载 ${downloadCount} 个视频！`);
+    }
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [pollingInterval]);
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
+      {/* Confirm Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">确认提交</h3>
+            <p className="text-gray-600 mb-2">
+              确认提交 <span className="font-bold text-blue-600">{taskCount}</span> 个视频生成任务吗？
+            </p>
+            <p className="text-sm text-gray-500 mb-6">
+              生成时间预计每个视频3-5分钟。
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={executeSubmission}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Progress Modal */}
+      {showProgressModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4 shadow-xl">
+            <div className="flex flex-col items-center">
+              <Loader className="w-16 h-16 text-blue-500 animate-spin mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">正在提交中</h3>
+              <p className="text-gray-600 text-center">
+                请稍等，正在上传图片并提交任务...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <div className="flex flex-col items-center mb-4">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                <Check className="w-10 h-10 text-green-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">提交成功！</h3>
+            </div>
+            <p className="text-gray-600 text-center mb-2">
+              已成功提交 <span className="font-bold text-green-600">{successTaskCount}</span> 个视频生成任务！
+            </p>
+            <p className="text-sm text-gray-500 text-center mb-6">
+              任务已进入队列，请在右侧第四列查看生成进度。<br />
+              预计3-5分钟完成。
+            </p>
+            <div className="flex justify-center">
+              <button
+                onClick={() => setShowSuccessModal(false)}
+                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regenerate Confirm Modal */}
+      {showRegenerateConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">确认重新生成</h3>
+            <p className="text-gray-600 mb-6">
+              确定要重新生成这个视频吗？
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setShowRegenerateConfirm(false);
+                  setRegenerateImageId(null);
+                }}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={executeRegenerateVideo}
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regenerate Progress Modal */}
+      {showRegenerateProgress && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4 shadow-xl">
+            <div className="flex flex-col items-center">
+              <Loader className="w-16 h-16 text-blue-500 animate-spin mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">正在提交中</h3>
+              <p className="text-gray-600 text-center">
+                请稍等，正在上传图片并提交任务...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regenerate Success Modal */}
+      {showRegenerateSuccess && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <div className="flex flex-col items-center mb-4">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                <Check className="w-10 h-10 text-green-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">提交完成</h3>
+            </div>
+            <p className="text-gray-600 text-center mb-6">
+              重新生成任务已成功提交，请在右侧查看生成进度。
+            </p>
+            <div className="flex justify-center">
+              <button
+                onClick={() => {
+                  setShowRegenerateSuccess(false);
+                  setRegenerateImageId(null);
+                }}
+                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Regenerate Error Modal */}
+      {showRegenerateError && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <div className="flex flex-col items-center mb-4">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                <span className="text-3xl text-red-600">✕</span>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">提交失败</h3>
+            </div>
+            <p className="text-gray-600 text-center mb-6">
+              {regenerateErrorMessage}
+            </p>
+            <div className="flex justify-center">
+              <button
+                onClick={() => {
+                  setShowRegenerateError(false);
+                  setRegenerateImageId(null);
+                  setRegenerateErrorMessage('');
+                }}
+                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch Download Confirm Modal */}
+      {showBatchDownloadConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">确认批量下载</h3>
+            <p className="text-gray-600 mb-2">
+              即将下载 <span className="font-bold text-purple-600">{Array.from(taskStatuses.values()).filter(t => t.status === 'completed').length}</span> 个已完成的视频文件
+            </p>
+            <p className="text-sm text-gray-500 mb-6">
+              视频将自动下载到您的下载文件夹中。
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowBatchDownloadConfirm(false)}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  setShowBatchDownloadConfirm(false);
+                  handleBatchDownloadVideos();
+                }}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                确定下载
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -999,6 +1530,32 @@ const VideoPromptGenerator: React.FC = () => {
                 >
                   <Download className="w-5 h-5" />
                   下载英文版
+                </button>
+
+                <button
+                  onClick={handleBatchGenerateVideos}
+                  disabled={isSubmittingTasks || images.length === 0 || images.filter(img => img.generatedPrompt).length === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    isSubmittingTasks || images.length === 0 || images.filter(img => img.generatedPrompt).length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-green-500 text-white hover:bg-green-600'
+                  }`}
+                >
+                  <Video className="w-5 h-5" />
+                  {isSubmittingTasks ? '提交中...' : '批量生成视频'}
+                </button>
+
+                <button
+                  onClick={() => setShowBatchDownloadConfirm(true)}
+                  disabled={Array.from(taskStatuses.values()).filter(t => t.status === 'completed').length === 0}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                    Array.from(taskStatuses.values()).filter(t => t.status === 'completed').length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-purple-600 text-white hover:bg-purple-700'
+                  }`}
+                >
+                  <Download className="w-5 h-5" />
+                  批量下载视频
                 </button>
               </div>
             )}
@@ -1477,6 +2034,127 @@ const VideoPromptGenerator: React.FC = () => {
                         rows={7}
                         title={!editingPrompts.has(`${image.id}-en`) && !image.isTranslating ? "点击复制内容" : ""}
                       />
+                    </div>
+
+                    {/* Video column - NEW */}
+                    <div className="w-[300px]">
+                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                        生成的视频
+                      </label>
+                      {(() => {
+                        const taskId = hailuoTasks.get(image.id);
+                        const task = taskId ? taskStatuses.get(taskId) : null;
+
+                        if (!task) {
+                          return (
+                            <div className="w-full h-[160px] border border-gray-300 rounded bg-gray-50 flex items-center justify-center text-sm text-gray-500">
+                              未提交生成任务
+                            </div>
+                          );
+                        }
+
+                        // Show video if completed
+                        if (task.status === 'completed' && task.videoUrl) {
+                          return (
+                            <div className="space-y-2">
+                              <video
+                                src={task.videoUrl}
+                                controls
+                                className="w-full h-[160px] rounded border border-gray-300 bg-black"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleRegenerateVideo(image.id)}
+                                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600"
+                                >
+                                  <RefreshCw className="w-3 h-3" />
+                                  重新生成
+                                </button>
+                                <a
+                                  href={task.videoUrl}
+                                  download
+                                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+                                >
+                                  <Download className="w-3 h-3" />
+                                  下载
+                                </a>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // Show status with timer
+                        const getStatusDisplay = () => {
+                          const createdAt = new Date(task.createdAt);
+                          const now = new Date();
+                          const elapsedSeconds = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
+                          const minutes = Math.floor(elapsedSeconds / 60);
+                          const seconds = elapsedSeconds % 60;
+
+                          switch (task.status) {
+                            case 'pending':
+                              return {
+                                text: '等待生成...',
+                                icon: <Clock className="w-4 h-4 animate-pulse" />,
+                                color: 'text-gray-600',
+                                time: `${minutes}:${seconds.toString().padStart(2, '0')}`
+                              };
+                            case 'locked':
+                              return {
+                                text: '已被领取，生成中...',
+                                icon: <Loader className="w-4 h-4 animate-spin" />,
+                                color: 'text-blue-600',
+                                time: `${minutes}:${seconds.toString().padStart(2, '0')}`
+                              };
+                            case 'processing':
+                              return {
+                                text: '已提交，等待下载...',
+                                icon: <Loader className="w-4 h-4 animate-spin" />,
+                                color: 'text-green-600',
+                                time: `${minutes}:${seconds.toString().padStart(2, '0')}`
+                              };
+                            case 'failed':
+                              return {
+                                text: `生成失败`,
+                                icon: null,
+                                color: 'text-red-600',
+                                error: task.errorMessage
+                              };
+                            default:
+                              return { text: '未知状态', icon: null, color: 'text-gray-600' };
+                          }
+                        };
+
+                        const display = getStatusDisplay();
+
+                        return (
+                          <div className="w-full h-[160px] border border-gray-300 rounded bg-gray-50 flex flex-col items-center justify-center p-4 text-sm">
+                            <div className={`flex items-center gap-2 ${display.color} mb-2`}>
+                              {display.icon}
+                              <span>{display.text}</span>
+                            </div>
+                            {display.time && (
+                              <div className="text-lg font-mono text-gray-700">
+                                {display.time}
+                              </div>
+                            )}
+                            {display.error && (
+                              <div className="text-xs text-red-500 mt-2 text-center">
+                                {display.error}
+                              </div>
+                            )}
+                            {task.status === 'failed' && (
+                              <button
+                                onClick={() => handleRegenerateVideo(image.id)}
+                                className="mt-3 flex items-center gap-1 px-3 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                                重新生成
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>

@@ -518,16 +518,25 @@ export default function MusicLibrary() {
               {filteredMusic.map((item) => (
                 <tr key={item.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <button
-                      onClick={() => handlePlay(item)}
-                      className="text-blue-500 hover:text-blue-700 transition-colors"
-                    >
-                      {playingId === item.id ? (
-                        <Pause className="w-5 h-5" />
-                      ) : (
-                        <Play className="w-5 h-5" />
-                      )}
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        onClick={() => handlePlay(item)}
+                        className="text-blue-500 hover:text-blue-700 transition-colors"
+                      >
+                        {playingId === item.id ? (
+                          <Pause className="w-5 h-5" />
+                        ) : (
+                          <Play className="w-5 h-5" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleDownload(item)}
+                        className="text-gray-600 hover:text-blue-600 transition-colors"
+                        title="下载"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex flex-col">
@@ -552,33 +561,24 @@ export default function MusicLibrary() {
                     {new Date(item.created_at).toLocaleDateString()}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleDownload(item)}
-                        className="text-gray-600 hover:text-blue-600 transition-colors"
-                        title="下载"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
-                      {(libraryScope === 'mine' || item.isOwner) && (
-                        <>
-                          <button
-                            onClick={() => handleEdit(item)}
-                            className="text-gray-600 hover:text-blue-600 transition-colors"
-                            title="编辑"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className="text-gray-600 hover:text-red-600 transition-colors"
-                            title="删除"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    {(libraryScope === 'mine' || item.isOwner) && (
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleEdit(item)}
+                          className="text-gray-600 hover:text-blue-600 transition-colors"
+                          title="编辑"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(item.id)}
+                          className="text-gray-600 hover:text-red-600 transition-colors"
+                          title="删除"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
