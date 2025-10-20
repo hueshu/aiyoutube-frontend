@@ -448,29 +448,12 @@ const BenchmarkVideoLibrary: React.FC = () => {
                                   )}
                                 </div>
                               ) : (
-                                <div className="flex flex-col items-center space-y-2">
-                                  {playingVideo === video.id ? (
-                                    <video
-                                      src={video.videoFileUrl.startsWith('http')
-                                        ? video.videoFileUrl
-                                        : `${API_URL.replace('/api/v1', '')}${video.videoFileUrl}`}
-                                      controls
-                                      className="w-48 h-27 rounded"
-                                      autoPlay
-                                    />
-                                  ) : (
-                                    <div className="relative w-48 h-27 bg-gray-200 rounded flex items-center justify-center">
-                                      <Play className="w-12 h-12 text-gray-400" />
-                                    </div>
-                                  )}
-                                  <button
-                                    onClick={() => setPlayingVideo(playingVideo === video.id ? null : video.id)}
-                                    className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 flex items-center gap-1"
-                                  >
-                                    <Play className="w-4 h-4" />
-                                    {playingVideo === video.id ? '收起' : '播放'}
-                                  </button>
-                                </div>
+                                <button
+                                  onClick={() => setPlayingVideo(video.id)}
+                                  className="relative w-48 h-27 bg-gray-200 rounded flex items-center justify-center hover:bg-gray-300 transition-colors cursor-pointer group"
+                                >
+                                  <Play className="w-16 h-16 text-gray-400 group-hover:text-blue-600 transition-colors" />
+                                </button>
                               )}
                             </td>
 
@@ -791,6 +774,38 @@ const BenchmarkVideoLibrary: React.FC = () => {
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* 视频播放弹窗 */}
+      {playingVideo && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          onClick={() => setPlayingVideo(null)}
+        >
+          <div
+            className="relative max-w-4xl w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setPlayingVideo(null)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+            >
+              <X className="w-8 h-8" />
+            </button>
+            <video
+              src={(() => {
+                const video = videos.find(v => v.id === playingVideo);
+                if (!video) return '';
+                return video.videoFileUrl.startsWith('http')
+                  ? video.videoFileUrl
+                  : `${API_URL.replace('/api/v1', '')}${video.videoFileUrl}`;
+              })()}
+              controls
+              autoPlay
+              className="w-full rounded-lg"
+            />
           </div>
         </div>
       )}
