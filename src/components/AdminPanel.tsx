@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { Users, BarChart, UserPlus, Trash2, Edit, Shield, Activity, Eye, EyeOff, CheckCircle, XCircle, AlertCircle, RefreshCw, Key, FileText, Clock } from 'lucide-react';
+import { Users, BarChart, UserPlus, Trash2, Edit, Shield, Activity, Eye, EyeOff, CheckCircle, XCircle, AlertCircle, RefreshCw, Key, FileText, Clock, Video } from 'lucide-react';
 import SubmissionStats from './SubmissionStats';
 import AdminWorkSnapshots from './AdminWorkSnapshots';
+import AdminHailuoMonitor from './AdminHailuoMonitor';
 
 interface User {
   id: number;
@@ -84,7 +85,7 @@ const AdminPanel: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingUsers, setLoadingUsers] = useState(false);
-  const [activeTab, setActiveTab] = useState<'users' | 'stats' | 'submissions' | 'work-snapshots'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'stats' | 'submissions' | 'work-snapshots' | 'hailuo-monitor'>('users');
   const [searchTerm, setSearchTerm] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -395,6 +396,13 @@ const AdminPanel: React.FC = () => {
               <Clock className="w-4 h-4 inline mr-2" />
               工作记录
             </button>
+            <button
+              onClick={() => setActiveTab('hailuo-monitor')}
+              className={`px-4 py-2 rounded ${activeTab === 'hailuo-monitor' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+            >
+              <Video className="w-4 h-4 inline mr-2" />
+              海螺监控
+            </button>
           </div>
         </div>
 
@@ -645,6 +653,10 @@ const AdminPanel: React.FC = () => {
 
         {activeTab === 'work-snapshots' && (
           <AdminWorkSnapshots />
+        )}
+
+        {activeTab === 'hailuo-monitor' && (
+          <AdminHailuoMonitor />
         )}
       </div>
 

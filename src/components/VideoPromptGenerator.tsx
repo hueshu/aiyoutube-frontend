@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown, Users, RefreshCw, Link, Unlink, Video, Clock } from 'lucide-react';
 import { API_URL } from '../config/api';
+import JSZip from 'jszip';
 import {
   uploadImage,
   submitBatchTasks,
@@ -149,7 +150,7 @@ const VideoPromptGenerator: React.FC = () => {
   const [hasImportedFromScript, setHasImportedFromScript] = useState(false);
 
   // Hailuo video generation states
-  const [hailuoTasks, setHailuoTasks] = useState<Map<string, string>>(new Map()); // imageId -> taskId mapping
+  const [hailuoTasks, setHailuoTasks] = useState<Map<string, string[]>>(new Map()); // imageId -> taskId[] mapping (support multiple versions)
   const [taskStatuses, setTaskStatuses] = useState<Map<string, any>>(new Map()); // taskId -> task status
   const [isSubmittingTasks, setIsSubmittingTasks] = useState(false);
   const [pollingInterval, setPollingInterval] = useState<ReturnType<typeof setInterval> | null>(null);
@@ -171,6 +172,18 @@ const VideoPromptGenerator: React.FC = () => {
 
   // Modal state for batch download confirmation
   const [showBatchDownloadConfirm, setShowBatchDownloadConfirm] = useState(false);
+
+  // Modal states for batch download progress
+  const [showDownloadProgress, setShowDownloadProgress] = useState(false);
+  const [downloadProgressCurrent, setDownloadProgressCurrent] = useState(0);
+  const [downloadProgressTotal, setDownloadProgressTotal] = useState(0);
+  const [downloadProgressMessage, setDownloadProgressMessage] = useState('');
+
+  // Modal state for video playback
+  const [showVideoModal, setShowVideoModal] = useState(false);
+  const [modalVideoUrl, setModalVideoUrl] = useState<string>('');
+  const [modalVersionNumber, setModalVersionNumber] = useState<number>(1);
+  const [modalPrompt, setModalPrompt] = useState<string>('');
 
   // Load scripts when component mounts or scope changes
   useEffect(() => {
@@ -1034,14 +1047,15 @@ const VideoPromptGenerator: React.FC = () => {
       for (const img of images) {
         if (img.upLink && !img.downLink) continue; // Skip tail frames
         if (taskIndex < taskIds.length) {
-          newMapping.set(img.id, taskIds[taskIndex]);
+          const existingTasks = newMapping.get(img.id) || [];
+          newMapping.set(img.id, [...existingTasks, taskIds[taskIndex]]);
           taskIndex++;
         }
       }
       setHailuoTasks(newMapping);
 
-      // Step 4: Start polling
-      startPollingTasks(taskIds);
+      // Step 4: Start polling all tasks
+      startPollingTasks();
 
       // Hide progress modal and show success modal
       setShowProgressModal(false);
@@ -1058,30 +1072,52 @@ const VideoPromptGenerator: React.FC = () => {
 
   /**
    * Start polling tasks status
+   * Always polls all unfinished tasks from hailuoTasks Map
    */
-  const startPollingTasks = (taskIds: string[]) => {
-    // Clear existing interval
+  const startPollingTasks = () => {
+    // Don't clear existing interval - let it continue polling all tasks
+    // Only create new interval if there isn't one running
     if (pollingInterval) {
-      clearInterval(pollingInterval);
+      return; // Already polling, no need to restart
     }
 
     const pollTasks = async () => {
       try {
-        const tasks = await pollTasksStatus(taskIds);
-        const newStatuses = new Map(taskStatuses);
-        tasks.forEach(task => {
-          newStatuses.set(task.taskId, task);
-        });
-        setTaskStatuses(newStatuses);
+        // Get fresh reference to hailuoTasks by using state updater function
+        setHailuoTasks(currentTasks => {
+          // Get all taskIds from current hailuoTasks Map
+          const allTaskIds = Array.from(currentTasks.values()).flat();
 
-        // Check if all tasks are completed or failed
-        const allDone = tasks.every(t => t.status === 'completed' || t.status === 'failed');
-        if (allDone && pollingInterval) {
-          clearInterval(pollingInterval);
-          setPollingInterval(null);
-        }
+          if (allTaskIds.length > 0) {
+            // Poll all tasks (async, but we don't await here to avoid blocking state update)
+            pollTasksStatus(allTaskIds).then(tasks => {
+              setTaskStatuses(prevStatuses => {
+                const newStatuses = new Map(prevStatuses);
+                tasks.forEach(task => {
+                  newStatuses.set(task.taskId, task);
+                });
+                return newStatuses;
+              });
+
+              // Check if all tasks are completed or failed
+              const allDone = tasks.every(t => t.status === 'completed' || t.status === 'failed');
+              if (allDone) {
+                setPollingInterval(prev => {
+                  if (prev) {
+                    clearInterval(prev);
+                  }
+                  return null;
+                });
+              }
+            }).catch(error => {
+              console.error('Polling error:', error);
+            });
+          }
+
+          return currentTasks; // Return unchanged
+        });
       } catch (error) {
-        console.error('Polling error:', error);
+        console.error('Polling setup error:', error);
       }
     };
 
@@ -1137,13 +1173,14 @@ const VideoPromptGenerator: React.FC = () => {
         imageCount: imageUrls.length
       });
 
-      // Update mapping
+      // Update mapping - add new taskId to existing array
       const newMapping = new Map(hailuoTasks);
-      newMapping.set(regenerateImageId, taskId);
+      const existingTasks = newMapping.get(regenerateImageId) || [];
+      newMapping.set(regenerateImageId, [...existingTasks, taskId]);
       setHailuoTasks(newMapping);
 
-      // Start polling this task
-      startPollingTasks([taskId]);
+      // Start polling all tasks (including this new one)
+      startPollingTasks();
 
       // Hide progress modal and show success modal
       setShowRegenerateProgress(false);
@@ -1157,47 +1194,138 @@ const VideoPromptGenerator: React.FC = () => {
   };
 
   /**
-   * Handle batch download videos
+   * Handle batch download videos - support multiple versions
    */
   const handleBatchDownloadVideos = async () => {
-    let downloadCount = 0;
+    try {
+      // Get all images with taskIds
+      const imagesWithTasks = Array.from(hailuoTasks.entries())
+        .filter(([imageId]) => images.find(i => i.id === imageId))
+        .sort(([idA], [idB]) => {
+          const indexA = images.findIndex(i => i.id === idA);
+          const indexB = images.findIndex(i => i.id === idB);
+          return indexA - indexB;
+        });
 
-    for (const [imageId, taskId] of hailuoTasks.entries()) {
-      const task = taskStatuses.get(taskId);
-      if (task && task.status === 'completed' && task.videoUrl) {
-        try {
-          // Download video
-          const response = await fetch(task.videoUrl);
-          const blob = await response.blob();
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
+      // Collect all videos to download
+      const videosToDownload: Array<{ filename: string; url: string }> = [];
 
-          const img = images.find(i => i.id === imageId);
-          const prompt = img?.generatedPrompt || 'video';
+      for (let imgIndex = 0; imgIndex < imagesWithTasks.length; imgIndex++) {
+        const [imageId, taskIds] = imagesWithTasks[imgIndex];
+        const img = images.find(i => i.id === imageId);
+        if (!img) continue;
+
+        // Filter completed tasks
+        const completedTasks = taskIds
+          .map(taskId => ({ taskId, task: taskStatuses.get(taskId) }))
+          .filter(({ task }) => task && task.status === 'completed' && task.videoUrl);
+
+        if (completedTasks.length === 0) continue;
+
+        // Format image index (001, 002, etc.)
+        const imageIndex = String(imgIndex + 1).padStart(3, '0');
+
+        // Add all versions to download list
+        for (let versionIndex = 0; versionIndex < completedTasks.length; versionIndex++) {
+          const { task } = completedTasks[versionIndex];
+
+          const prompt = img.generatedPrompt || 'video';
           const cleanPrompt = prompt.substring(0, 50).replace(/[/\\:*?\"<>|]/g, '_');
 
-          a.href = url;
-          a.download = `${cleanPrompt}.mp4`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          window.URL.revokeObjectURL(url);
+          // Filename format: 001.mp4 (single version) or 001-1.mp4, 001-2.mp4 (multiple versions)
+          const filename = completedTasks.length > 1
+            ? `${imageIndex}-${versionIndex + 1}_${cleanPrompt}.mp4`
+            : `${imageIndex}_${cleanPrompt}.mp4`;
 
-          downloadCount++;
-
-          // Add delay between downloads
-          await new Promise(resolve => setTimeout(resolve, 500));
-        } catch (error) {
-          console.error('Download failed for', imageId, error);
+          videosToDownload.push({ filename, url: task.videoUrl });
         }
       }
-    }
 
-    if (downloadCount === 0) {
-      alert('没有可下载的视频');
-    } else {
-      alert(`成功下载 ${downloadCount} 个视频！`);
+      if (videosToDownload.length === 0) {
+        alert('没有可下载的视频');
+        return;
+      }
+
+      // Show progress modal
+      setShowDownloadProgress(true);
+      setDownloadProgressTotal(videosToDownload.length);
+      setDownloadProgressCurrent(0);
+      setDownloadProgressMessage('准备下载...');
+
+      // Create ZIP
+      const zip = new JSZip();
+
+      // Download and add videos to ZIP
+      for (let i = 0; i < videosToDownload.length; i++) {
+        const video = videosToDownload[i];
+
+        setDownloadProgressCurrent(i + 1);
+        setDownloadProgressMessage(`正在下载第 ${i + 1}/${videosToDownload.length} 个视频...`);
+
+        try {
+          const response = await fetch(video.url);
+          if (!response.ok) throw new Error(`Failed to fetch ${video.filename}`);
+
+          const blob = await response.blob();
+          zip.file(video.filename, blob);
+        } catch (error) {
+          console.error('Download failed for', video.filename, error);
+          // Continue with other videos even if one fails
+        }
+      }
+
+      // Generate ZIP
+      setDownloadProgressMessage('正在压缩视频...');
+      const zipBlob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
+      }, (metadata) => {
+        // Progress callback
+        setDownloadProgressMessage(`正在压缩... ${Math.round(metadata.percent)}%`);
+      });
+
+      // Download ZIP
+      setDownloadProgressMessage('准备下载压缩包...');
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `videos_${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      // Close progress modal
+      setShowDownloadProgress(false);
+      alert(`成功下载 ${videosToDownload.length} 个视频的压缩包！`);
+
+    } catch (error) {
+      console.error('Batch download failed:', error);
+      setShowDownloadProgress(false);
+      alert('批量下载失败，请稍后重试');
     }
+  };
+
+  /**
+   * Open video in modal for playback
+   */
+  const openVideoModal = (videoUrl: string, versionNumber: number, imageId: string) => {
+    const img = images.find(i => i.id === imageId);
+    setModalVideoUrl(videoUrl);
+    setModalVersionNumber(versionNumber);
+    setModalPrompt(img?.generatedPrompt || '');
+    setShowVideoModal(true);
+  };
+
+  /**
+   * Close video modal
+   */
+  const closeVideoModal = () => {
+    setShowVideoModal(false);
+    setModalVideoUrl('');
+    setModalVersionNumber(1);
+    setModalPrompt('');
   };
 
   // Cleanup polling on unmount
@@ -1208,6 +1336,22 @@ const VideoPromptGenerator: React.FC = () => {
       }
     };
   }, [pollingInterval]);
+
+  // Handle ESC key to close video modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showVideoModal) {
+        closeVideoModal();
+      }
+    };
+
+    if (showVideoModal) {
+      document.addEventListener('keydown', handleEscape);
+      return () => {
+        document.removeEventListener('keydown', handleEscape);
+      };
+    }
+  }, [showVideoModal]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -1413,6 +1557,97 @@ const VideoPromptGenerator: React.FC = () => {
                 确定下载
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Download Progress Modal */}
+      {showDownloadProgress && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">正在下载视频</h3>
+
+            <div className="space-y-4">
+              {/* Progress message */}
+              <p className="text-sm text-gray-600">{downloadProgressMessage}</p>
+
+              {/* Progress bar */}
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div
+                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                  style={{ width: `${(downloadProgressCurrent / downloadProgressTotal) * 100}%` }}
+                ></div>
+              </div>
+
+              {/* Progress text */}
+              <p className="text-sm text-center text-gray-500">
+                {downloadProgressCurrent} / {downloadProgressTotal}
+              </p>
+
+              {/* Spinner */}
+              <div className="flex justify-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Video Playback Modal */}
+      {showVideoModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-50 p-4"
+          onClick={closeVideoModal}
+        >
+          <div
+            className="relative bg-black rounded-lg shadow-2xl max-w-6xl w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4 bg-gradient-to-b from-black/80 to-transparent z-10">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-600 text-white text-sm px-3 py-1 rounded">
+                  版本 {modalVersionNumber}
+                </div>
+                <button
+                  onClick={closeVideoModal}
+                  className="text-white hover:text-gray-300 transition-colors"
+                  title="关闭 (ESC)"
+                >
+                  <span className="text-2xl">✕</span>
+                </button>
+              </div>
+              <a
+                href={modalVideoUrl}
+                download
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <Download className="w-4 h-4" />
+                下载
+              </a>
+            </div>
+
+            {/* Video Player - 720p (1280x720) with responsive */}
+            <div className="relative" style={{ paddingBottom: '56.25%' /* 16:9 aspect ratio */ }}>
+              <video
+                src={modalVideoUrl}
+                controls
+                autoPlay
+                className="absolute top-0 left-0 w-full h-full rounded-lg"
+                style={{ maxHeight: '720px' }}
+              />
+            </div>
+
+            {/* Footer - Prompt */}
+            {modalPrompt && (
+              <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
+                <p className="text-white text-sm">
+                  <span className="font-semibold">提示词：</span>
+                  {modalPrompt}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1868,7 +2103,7 @@ const VideoPromptGenerator: React.FC = () => {
                             : 'text-green-600 hover:text-green-700'
                         }`}
                       >
-                        {image.isProcessing ? '生成中...' : (image.generatedPrompt ? '重新生成' : '生成')}
+                        {image.isProcessing ? '生成中...' : (image.generatedPrompt ? '重新生成提示词' : '生成提示词')}
                       </button>
                       {image.generatedPrompt && (
                         <button
@@ -2036,125 +2271,154 @@ const VideoPromptGenerator: React.FC = () => {
                       />
                     </div>
 
-                    {/* Video column - NEW */}
+                    {/* Video column - Support multiple versions */}
                     <div className="w-[300px]">
-                      <label className="block text-xs font-medium text-gray-700 mb-1">
-                        生成的视频
-                      </label>
-                      {(() => {
-                        const taskId = hailuoTasks.get(image.id);
-                        const task = taskId ? taskStatuses.get(taskId) : null;
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-medium text-gray-700">
+                          生成的视频
+                        </label>
+                        <button
+                          onClick={() => handleRegenerateVideo(image.id)}
+                          disabled={!image.generatedPrompt}
+                          className={`text-xs ${
+                            !image.generatedPrompt
+                              ? 'text-gray-400 cursor-not-allowed'
+                              : 'text-orange-600 hover:text-orange-700'
+                          }`}
+                        >
+                          重新生成视频
+                        </button>
+                      </div>
+                      <div className="max-h-[400px] overflow-y-auto space-y-2">
+                        {(() => {
+                          const taskIds = hailuoTasks.get(image.id) || [];
 
-                        if (!task) {
-                          return (
-                            <div className="w-full h-[160px] border border-gray-300 rounded bg-gray-50 flex items-center justify-center text-sm text-gray-500">
-                              未提交生成任务
-                            </div>
-                          );
-                        }
-
-                        // Show video if completed
-                        if (task.status === 'completed' && task.videoUrl) {
-                          return (
-                            <div className="space-y-2">
-                              <video
-                                src={task.videoUrl}
-                                controls
-                                className="w-full h-[160px] rounded border border-gray-300 bg-black"
-                              />
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={() => handleRegenerateVideo(image.id)}
-                                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600"
-                                >
-                                  <RefreshCw className="w-3 h-3" />
-                                  重新生成
-                                </button>
-                                <a
-                                  href={task.videoUrl}
-                                  download
-                                  className="flex-1 flex items-center justify-center gap-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
-                                >
-                                  <Download className="w-3 h-3" />
-                                  下载
-                                </a>
+                          if (taskIds.length === 0) {
+                            return (
+                              <div className="w-full h-[160px] border border-gray-300 rounded bg-gray-50 flex items-center justify-center text-sm text-gray-500">
+                                未提交生成任务
                               </div>
-                            </div>
-                          );
-                        }
-
-                        // Show status with timer
-                        const getStatusDisplay = () => {
-                          const createdAt = new Date(task.createdAt);
-                          const now = new Date();
-                          const elapsedSeconds = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
-                          const minutes = Math.floor(elapsedSeconds / 60);
-                          const seconds = elapsedSeconds % 60;
-
-                          switch (task.status) {
-                            case 'pending':
-                              return {
-                                text: '等待生成...',
-                                icon: <Clock className="w-4 h-4 animate-pulse" />,
-                                color: 'text-gray-600',
-                                time: `${minutes}:${seconds.toString().padStart(2, '0')}`
-                              };
-                            case 'locked':
-                              return {
-                                text: '已被领取，生成中...',
-                                icon: <Loader className="w-4 h-4 animate-spin" />,
-                                color: 'text-blue-600',
-                                time: `${minutes}:${seconds.toString().padStart(2, '0')}`
-                              };
-                            case 'processing':
-                              return {
-                                text: '已提交，等待下载...',
-                                icon: <Loader className="w-4 h-4 animate-spin" />,
-                                color: 'text-green-600',
-                                time: `${minutes}:${seconds.toString().padStart(2, '0')}`
-                              };
-                            case 'failed':
-                              return {
-                                text: `生成失败`,
-                                icon: null,
-                                color: 'text-red-600',
-                                error: task.errorMessage
-                              };
-                            default:
-                              return { text: '未知状态', icon: null, color: 'text-gray-600' };
+                            );
                           }
-                        };
 
-                        const display = getStatusDisplay();
+                          // Render all videos (newest first)
+                          return [...taskIds].reverse().map((taskId, index) => {
+                            const task = taskStatuses.get(taskId);
+                            if (!task) return null;
 
-                        return (
-                          <div className="w-full h-[160px] border border-gray-300 rounded bg-gray-50 flex flex-col items-center justify-center p-4 text-sm">
-                            <div className={`flex items-center gap-2 ${display.color} mb-2`}>
-                              {display.icon}
-                              <span>{display.text}</span>
-                            </div>
-                            {display.time && (
-                              <div className="text-lg font-mono text-gray-700">
-                                {display.time}
+                            const versionNumber = taskIds.length - index;
+
+                            // Show completed video
+                            if (task.status === 'completed' && task.videoUrl) {
+                              return (
+                                <div key={taskId} className="relative group">
+                                  <div className="absolute top-2 left-2 bg-black bg-opacity-60 text-white text-xs px-2 py-1 rounded z-10">
+                                    版本 {versionNumber}
+                                  </div>
+                                  <a
+                                    href={task.videoUrl}
+                                    download
+                                    className="absolute top-2 right-2 p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 z-10"
+                                    title="下载此版本"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </a>
+                                  <div
+                                    className="relative cursor-pointer"
+                                    onClick={() => openVideoModal(task.videoUrl, versionNumber, image.id)}
+                                    title="点击放大播放"
+                                  >
+                                    <video
+                                      src={task.videoUrl}
+                                      className="w-full h-[160px] rounded border border-gray-300 bg-black"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                      }}
+                                    />
+                                    {/* Hover overlay */}
+                                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all duration-200 flex items-center justify-center rounded">
+                                      <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                                        <div className="bg-white text-gray-900 px-4 py-2 rounded-lg shadow-lg flex items-center gap-2">
+                                          <span className="text-2xl">▶</span>
+                                          <span className="text-sm font-medium">点击放大播放</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            // Show status for pending/processing/failed tasks
+                            const getStatusDisplay = () => {
+                              const createdAt = new Date(task.createdAt);
+                              const now = new Date();
+                              const elapsedSeconds = Math.floor((now.getTime() - createdAt.getTime()) / 1000);
+                              const minutes = Math.floor(elapsedSeconds / 60);
+                              const seconds = elapsedSeconds % 60;
+
+                              switch (task.status) {
+                                case 'pending':
+                                  return {
+                                    text: '等待生成...',
+                                    icon: <Clock className="w-4 h-4 animate-pulse" />,
+                                    color: 'text-gray-600',
+                                    time: `${minutes}:${seconds.toString().padStart(2, '0')}`
+                                  };
+                                case 'locked':
+                                  return {
+                                    text: '已被领取，生成中...',
+                                    icon: <Loader className="w-4 h-4 animate-spin" />,
+                                    color: 'text-blue-600',
+                                    time: `${minutes}:${seconds.toString().padStart(2, '0')}`
+                                  };
+                                case 'processing':
+                                  return {
+                                    text: '已提交，等待下载...',
+                                    icon: <Loader className="w-4 h-4 animate-spin" />,
+                                    color: 'text-green-600',
+                                    time: `${minutes}:${seconds.toString().padStart(2, '0')}`
+                                  };
+                                case 'failed':
+                                  return {
+                                    text: '生成失败',
+                                    icon: null,
+                                    color: 'text-red-600',
+                                    error: task.errorMessage
+                                  };
+                                default:
+                                  return { text: '未知状态', icon: null, color: 'text-gray-600' };
+                              }
+                            };
+
+                            const display = getStatusDisplay();
+
+                            return (
+                              <div key={taskId} className="relative w-full h-[160px] border border-gray-300 rounded bg-gray-50 flex flex-col items-center justify-center p-4 text-sm">
+                                <div className="absolute top-2 left-2 bg-black bg-opacity-60 text-white text-xs px-2 py-1 rounded">
+                                  版本 {versionNumber}
+                                </div>
+                                <div className={`flex items-center gap-2 ${display.color} mb-2`}>
+                                  {display.icon}
+                                  <span>{display.text}</span>
+                                </div>
+                                {display.time && (
+                                  <div className="text-lg font-mono text-gray-700">
+                                    {display.time}
+                                  </div>
+                                )}
+                                {display.error && (
+                                  <div className="text-xs text-red-500 mt-2 text-center">
+                                    {display.error}
+                                  </div>
+                                )}
                               </div>
-                            )}
-                            {display.error && (
-                              <div className="text-xs text-red-500 mt-2 text-center">
-                                {display.error}
-                              </div>
-                            )}
-                            {task.status === 'failed' && (
-                              <button
-                                onClick={() => handleRegenerateVideo(image.id)}
-                                className="mt-3 flex items-center gap-1 px-3 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600"
-                              >
-                                <RefreshCw className="w-3 h-3" />
-                                重新生成
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })()}
+                            );
+                          });
+                        })()}
+                      </div>
                     </div>
                   </div>
                 </div>

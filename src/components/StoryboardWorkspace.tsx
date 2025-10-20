@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store'
 import { useAuthStore } from '../store/authStore'
 import { API_URL } from '../config/api';
-import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye, Palette, Info, FileText, Clock } from 'lucide-react';
+import { Image, Download, RefreshCw, Loader, Maximize2, Edit2, Save, X, Send, Check, Eye, Palette, Info, FileText, Clock, ArrowUp } from 'lucide-react';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import aiStylesData from '../../docs/AI出图风格.json';
@@ -107,6 +107,7 @@ const StoryboardWorkspace: React.FC = () => {
   const [scriptCategories, setScriptCategories] = useState<string[]>([]);
   const [workSnapshotsModalOpen, setWorkSnapshotsModalOpen] = useState(false);
   const [savingWorkSnapshot, setSavingWorkSnapshot] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const aiStyles = aiStylesData.ai_video_styles.categories as StyleCategory[];
 
   useEffect(() => {
@@ -150,6 +151,16 @@ const StoryboardWorkspace: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [generatingFrames]);
+
+  // Scroll to top button visibility
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 300);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   // Check for pending snapshot restore (from admin panel)
   useEffect(() => {
@@ -1755,11 +1766,18 @@ const StoryboardWorkspace: React.FC = () => {
         ...frame,
         prompt: updatedPrompt,
         // 清除 originalPrompt，因为已经重置了
-        originalPrompt: undefined
+        originalPrompt: undefined,
+        // 清除角色图片缓存，让系统从重置后的 prompt 重新提取角色
+        charactersInFrame: undefined
       };
     });
 
     setScriptFrames(updatedFrames);
+  };
+
+  // Scroll to top function
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Clear all generated images
@@ -2341,15 +2359,27 @@ const StoryboardWorkspace: React.FC = () => {
               const selectedCharacter = characters.find((c: any) => c.id === characterMapping[scriptChar]);
 
               return (
-                <div 
-                  key={scriptChar} 
+                <div
+                  key={scriptChar}
                   className="border rounded-lg p-2 cursor-pointer hover:shadow-lg transition-shadow bg-gradient-to-br from-gray-50 to-white"
-                  onClick={() => setCharacterModal({
-                    isOpen: true,
-                    scriptChar: scriptChar,
-                    selectedCategory: '全部',
-                    selectedTags: []
-                  })}
+                  onClick={() => {
+                    // 检测是否已经替换过角色（originalPrompt存在且与prompt不同）
+                    const hasReplaced = scriptFrames.some(f =>
+                      f.originalPrompt && f.originalPrompt !== f.prompt
+                    );
+
+                    if (hasReplaced) {
+                      alert('您已执行过"替换角色"操作。\n\n请先点击"重置角色"按钮，再修改角色映射。');
+                      return;
+                    }
+
+                    setCharacterModal({
+                      isOpen: true,
+                      scriptChar: scriptChar,
+                      selectedCategory: '全部',
+                      selectedTags: []
+                    });
+                  }}
                 >
                   <div className="text-center">
                     <div className="text-sm font-semibold text-gray-700 mb-1">{scriptChar}</div>
@@ -3673,6 +3703,18 @@ const StoryboardWorkspace: React.FC = () => {
         projectId={selectedScript?.id || 0}
         onRestore={handleRestoreWorkSnapshot}
       />
+
+      {/* Scroll to Top Button */}
+      {showScrollTop && (
+        <button
+          onClick={scrollToTop}
+          className="fixed left-8 bottom-8 bg-blue-500 hover:bg-blue-600 text-white p-3 rounded-full shadow-lg transition-all duration-300 hover:scale-110 z-50"
+          title="回到顶部"
+          aria-label="回到顶部"
+        >
+          <ArrowUp className="w-6 h-6" />
+        </button>
+      )}
     </div>
   );
 };

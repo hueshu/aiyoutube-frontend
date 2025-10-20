@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Play, Download, Tag, Calendar, Loader, Trash2 } from 'lucide-react';
+import { Plus, X, Play, Download, Calendar, Loader, Trash2, Upload, AlertCircle } from 'lucide-react';
 import { API_URL } from '../config/api';
 
 interface BenchmarkVideo {
@@ -13,6 +13,9 @@ interface BenchmarkVideo {
   previewUrl?: string;
   createdAt: string;
   createdBy: string;
+  uploadType?: 'url' | 'manual' | 'failed_pending_upload';
+  originalFileName?: string;
+  taskId?: string;
 }
 
 interface VideoInput {
@@ -24,18 +27,44 @@ interface VideoInput {
 interface VideoTask {
   taskId: string;
   videoUrl: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'failed_pending_upload';
   error?: string;
+}
+
+interface UploadModalData {
+  mode: 'new' | '补传';
+  videoId?: string;
+  title?: string;
 }
 
 const BenchmarkVideoLibrary: React.FC = () => {
   const [videos, setVideos] = useState<BenchmarkVideo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // 添加视频模态框
   const [showAddModal, setShowAddModal] = useState(false);
   const [videoInputs, setVideoInputs] = useState<VideoInput[]>([{ url: '', description: '', tags: '' }]);
   const [submitting, setSubmitting] = useState(false);
+
+  // 手动上传模态框
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploadModalData, setUploadModalData] = useState<UploadModalData>({ mode: 'new' });
+  const [uploadForm, setUploadForm] = useState({
+    videoFile: null as File | null,
+    audioFile: null as File | null,
+    title: '',
+    description: '',
+    tags: '',
+    url: '',
+  });
+  const [uploading, setUploading] = useState(false);
+
+  // 分页和播放
   const [currentPage, setCurrentPage] = useState(1);
   const [playingVideo, setPlayingVideo] = useState<string | null>(null);
+
+  // 任务处理
   const [processingTasks, setProcessingTasks] = useState<VideoTask[]>([]);
   const [showProcessing, setShowProcessing] = useState(false);
 
@@ -56,6 +85,7 @@ const BenchmarkVideoLibrary: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setVideos(data.videos || []);
+        setIsAdmin(data.isAdmin || false);
       }
     } catch (error) {
       console.error('Failed to fetch videos:', error);
@@ -81,7 +111,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
   };
 
   const handleSubmit = async () => {
-    // 验证输入
     const validInputs = videoInputs.filter(v => v.url.trim() !== '');
     if (validInputs.length === 0) {
       alert('请至少输入一个视频URL');
@@ -106,7 +135,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
       });
 
       if (response.status === 202) {
-        // 异步处理模式
         const data = await response.json();
         const tasks: VideoTask[] = data.tasks.map((t: any) => ({
           taskId: t.taskId,
@@ -118,8 +146,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
         setShowAddModal(false);
         setShowProcessing(true);
         setVideoInputs([{ url: '', description: '', tags: '' }]);
-
-        // 开始轮询任务状态
         startPollingTasks(tasks.map(t => t.taskId));
       } else if (response.ok) {
         alert('视频添加成功！');
@@ -161,18 +187,25 @@ const BenchmarkVideoLibrary: React.FC = () => {
 
           setProcessingTasks(tasks);
 
-          // 检查是否所有任务都已完成
-          const allCompleted = tasks.every(t => t.status === 'completed' || t.status === 'failed');
+          const allCompleted = tasks.every(t =>
+            t.status === 'completed' ||
+            t.status === 'failed' ||
+            t.status === 'failed_pending_upload'
+          );
+
           if (allCompleted) {
             clearInterval(pollInterval);
-            fetchVideos(); // 刷新视频列表
+            fetchVideos();
 
-            // 显示完成提示
             const completedCount = tasks.filter(t => t.status === 'completed').length;
             const failedCount = tasks.filter(t => t.status === 'failed').length;
+            const pendingUploadCount = tasks.filter(t => t.status === 'failed_pending_upload').length;
 
             setTimeout(() => {
-              alert(`处理完成！成功: ${completedCount}个，失败: ${failedCount}个`);
+              let message = `处理完成！成功: ${completedCount}个`;
+              if (failedCount > 0) message += `，失败: ${failedCount}个`;
+              if (pendingUploadCount > 0) message += `，待上传: ${pendingUploadCount}个`;
+              alert(message);
               setShowProcessing(false);
               setProcessingTasks([]);
             }, 1000);
@@ -181,9 +214,8 @@ const BenchmarkVideoLibrary: React.FC = () => {
       } catch (error) {
         console.error('Failed to poll task status:', error);
       }
-    }, 2000); // 每2秒轮询一次
+    }, 2000);
 
-    // 5分钟后停止轮询
     setTimeout(() => {
       clearInterval(pollInterval);
     }, 5 * 60 * 1000);
@@ -216,17 +248,12 @@ const BenchmarkVideoLibrary: React.FC = () => {
 
   const handleDownload = async (fileUrl: string, title: string) => {
     try {
-      // 如果是相对路径，加上API_URL前缀
       const fullUrl = fileUrl.startsWith('http') ? fileUrl : `${API_URL.replace('/api/v1', '')}${fileUrl}`;
-
-      // 获取文件扩展名
       const ext = fileUrl.includes('.m4a') ? 'm4a' : 'mp4';
 
-      // 使用fetch下载文件
       const response = await fetch(fullUrl);
       const blob = await response.blob();
 
-      // 创建blob URL并触发下载
       const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
@@ -234,12 +261,77 @@ const BenchmarkVideoLibrary: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
-      // 释放blob URL
       URL.revokeObjectURL(blobUrl);
     } catch (error) {
       console.error('Download failed:', error);
       alert('下载失败，请重试');
+    }
+  };
+
+  const openUploadModal = (mode: 'new' | '补传', videoId?: string, title?: string) => {
+    setUploadModalData({ mode, videoId, title });
+    setUploadForm({
+      videoFile: null,
+      audioFile: null,
+      title: title || '',
+      description: '',
+      tags: '',
+      url: '',
+    });
+    setShowUploadModal(true);
+  };
+
+  const handleUpload = async () => {
+    if (!uploadForm.videoFile) {
+      alert('请选择视频文件');
+      return;
+    }
+
+    if (uploadModalData.mode === 'new' && !uploadForm.title) {
+      alert('请输入标题');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('video', uploadForm.videoFile);
+      if (uploadForm.audioFile) {
+        formData.append('audio', uploadForm.audioFile);
+      }
+
+      if (uploadModalData.mode === 'new') {
+        formData.append('title', uploadForm.title);
+        formData.append('description', uploadForm.description);
+        formData.append('tags', uploadForm.tags);
+        formData.append('url', uploadForm.url);
+      }
+
+      const url = uploadModalData.mode === 'new'
+        ? `${API_URL}/benchmark-videos/upload`
+        : `${API_URL}/benchmark-videos/upload/${uploadModalData.videoId}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+        },
+        body: formData
+      });
+
+      if (response.ok) {
+        alert(uploadModalData.mode === 'new' ? '上传成功！' : '补传成功！');
+        setShowUploadModal(false);
+        fetchVideos();
+      } else {
+        const error = await response.json();
+        alert(`上传失败: ${error.error || '未知错误'}`);
+      }
+    } catch (error) {
+      console.error('Upload failed:', error);
+      alert('上传失败，请重试');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -258,13 +350,11 @@ const BenchmarkVideoLibrary: React.FC = () => {
 
   // 获取所有日期（倒序）
   const getAllDates = () => {
-    const grouped = groupVideosByDate();
-    return Object.keys(grouped).sort((a, b) => {
-      return new Date(b).getTime() - new Date(a).getTime();
-    });
+    const dates = Object.keys(groupVideosByDate());
+    return dates.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
   };
 
-  // 分页逻辑
+  // 分页处理
   const getPaginatedDates = () => {
     const allDates = getAllDates();
     const startIndex = (currentPage - 1) * DAYS_PER_PAGE;
@@ -272,298 +362,435 @@ const BenchmarkVideoLibrary: React.FC = () => {
     return allDates.slice(startIndex, endIndex);
   };
 
-  const getTotalPages = () => {
-    const allDates = getAllDates();
-    return Math.ceil(allDates.length / DAYS_PER_PAGE);
-  };
-
+  const totalPages = Math.ceil(getAllDates().length / DAYS_PER_PAGE);
   const groupedVideos = groupVideosByDate();
   const paginatedDates = getPaginatedDates();
-  const totalPages = getTotalPages();
 
   return (
-    <div className="max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">对标视频库</h1>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          <span>添加视频</span>
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center items-center py-12">
-          <Loader className="w-8 h-8 animate-spin text-blue-600" />
-        </div>
-      ) : (
-        <>
-          {paginatedDates.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              暂无视频，点击右上角添加视频
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* 标题栏 */}
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-3xl font-bold text-gray-900">对标视频库</h1>
+          {isAdmin && (
+            <div className="space-x-2">
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                <span>添加视频</span>
+              </button>
+              <button
+                onClick={() => openUploadModal('new')}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+              >
+                <Upload className="w-5 h-5" />
+                <span>上传视频</span>
+              </button>
             </div>
-          ) : (
+          )}
+        </div>
+
+        {/* 加载状态 */}
+        {loading ? (
+          <div className="flex justify-center items-center py-12">
+            <Loader className="w-8 h-8 animate-spin text-blue-600" />
+          </div>
+        ) : videos.length === 0 ? (
+          <div className="text-center py-12 text-gray-500">
+            暂无视频
+          </div>
+        ) : (
+          <>
+            {/* 视频列表 - 按日期分组 */}
             <div className="space-y-8">
               {paginatedDates.map(date => (
-                <div key={date} className="bg-white rounded-lg shadow-md p-6">
-                  <div className="flex items-center space-x-2 mb-4 pb-2 border-b">
+                <div key={date} className="bg-white rounded-lg shadow-sm overflow-hidden">
+                  {/* 日期标题 */}
+                  <div className="bg-gray-100 px-6 py-3 border-b flex items-center gap-2">
                     <Calendar className="w-5 h-5 text-gray-600" />
-                    <h2 className="text-lg font-semibold">{date}</h2>
-                    <span className="text-sm text-gray-500">({groupedVideos[date].length} 个视频)</span>
+                    <span className="font-semibold text-gray-700">{date}</span>
+                    <span className="text-sm text-gray-500">({groupedVideos[date].length}个视频)</span>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {groupedVideos[date].map(video => (
-                      <div key={video.id} className="border rounded-lg p-4 hover:shadow-lg transition-shadow">
-                        {/* 视频预览或封面 */}
-                        {playingVideo === video.id ? (
-                          <div className="relative mb-3">
-                            <video
-                              src={video.videoFileUrl.startsWith('http') ? video.videoFileUrl : `${API_URL.replace('/api/v1', '')}${video.videoFileUrl}`}
-                              controls
-                              autoPlay
-                              className="w-full rounded-lg"
-                              style={{ maxHeight: '200px' }}
-                            />
-                          </div>
-                        ) : (
-                          <div className="relative mb-3 bg-gray-100 rounded-lg overflow-hidden" style={{ height: '150px' }}>
-                            {video.previewUrl ? (
-                              <img
-                                src={video.previewUrl}
-                                alt={video.title}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex items-center justify-center h-full">
-                                <Play className="w-12 h-12 text-gray-400" />
+                  {/* 表格 */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">视频</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">下载</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作说明</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">标题</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">标签</th>
+                          {isAdmin && (
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {groupedVideos[date].map(video => (
+                          <tr key={video.id} className="hover:bg-gray-50">
+                            {/* 视频列 */}
+                            <td className="px-6 py-4">
+                              {video.uploadType === 'failed_pending_upload' ? (
+                                <div className="text-center">
+                                  <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-2" />
+                                  <p className="text-sm text-yellow-600">等待上传</p>
+                                  {isAdmin && (
+                                    <button
+                                      onClick={() => openUploadModal('补传', video.id, video.title)}
+                                      className="mt-2 px-3 py-1 bg-yellow-500 text-white text-sm rounded hover:bg-yellow-600"
+                                    >
+                                      补传视频
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-center space-y-2">
+                                  {playingVideo === video.id ? (
+                                    <video
+                                      src={video.videoFileUrl.startsWith('http')
+                                        ? video.videoFileUrl
+                                        : `${API_URL.replace('/api/v1', '')}${video.videoFileUrl}`}
+                                      controls
+                                      className="w-48 h-27 rounded"
+                                      autoPlay
+                                    />
+                                  ) : (
+                                    <div className="relative w-48 h-27 bg-gray-200 rounded flex items-center justify-center">
+                                      <Play className="w-12 h-12 text-gray-400" />
+                                    </div>
+                                  )}
+                                  <button
+                                    onClick={() => setPlayingVideo(playingVideo === video.id ? null : video.id)}
+                                    className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 flex items-center gap-1"
+                                  >
+                                    <Play className="w-4 h-4" />
+                                    {playingVideo === video.id ? '收起' : '播放'}
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+
+                            {/* 下载列 */}
+                            <td className="px-6 py-4">
+                              {video.uploadType !== 'failed_pending_upload' && (
+                                <div className="flex flex-col space-y-2">
+                                  <button
+                                    onClick={() => handleDownload(video.videoFileUrl, video.title)}
+                                    className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 flex items-center gap-1"
+                                  >
+                                    <Download className="w-4 h-4" />
+                                    下载视频
+                                  </button>
+                                  {video.audioFileUrl && (
+                                    <button
+                                      onClick={() => handleDownload(video.audioFileUrl!, video.title)}
+                                      className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 flex items-center gap-1"
+                                    >
+                                      <Download className="w-4 h-4" />
+                                      下载音频
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* 操作说明列 */}
+                            <td className="px-6 py-4">
+                              <p className="text-sm text-gray-700">{video.description || '-'}</p>
+                            </td>
+
+                            {/* 标题列 */}
+                            <td className="px-6 py-4">
+                              <p className="text-sm font-medium text-gray-900">{video.title}</p>
+                              {isAdmin && video.url && (
+                                <a
+                                  href={video.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-blue-600 hover:underline mt-1 block"
+                                >
+                                  查看原视频
+                                </a>
+                              )}
+                            </td>
+
+                            {/* 标签列 */}
+                            <td className="px-6 py-4">
+                              <div className="flex flex-wrap gap-1">
+                                {video.tags.map((tag, index) => (
+                                  <span
+                                    key={index}
+                                    className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
                               </div>
+                            </td>
+
+                            {/* 操作列（仅管理员） */}
+                            {isAdmin && (
+                              <td className="px-6 py-4">
+                                <button
+                                  onClick={() => handleDelete(video.id)}
+                                  className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 flex items-center gap-1"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  删除
+                                </button>
+                              </td>
                             )}
-                          </div>
-                        )}
-
-                        {/* 视频信息 */}
-                        <h3 className="font-semibold text-sm mb-2 line-clamp-2">{video.title}</h3>
-                        {video.description && (
-                          <p className="text-xs text-gray-600 mb-2 line-clamp-2">{video.description}</p>
-                        )}
-
-                        {/* 标签 */}
-                        {video.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-3">
-                            {video.tags.map((tag, index) => (
-                              <span
-                                key={index}
-                                className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-blue-100 text-blue-700"
-                              >
-                                <Tag className="w-3 h-3 mr-1" />
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* 操作按钮 */}
-                        <div className="space-y-2">
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => setPlayingVideo(playingVideo === video.id ? null : video.id)}
-                              className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm"
-                            >
-                              <Play className="w-4 h-4" />
-                              <span>{playingVideo === video.id ? '收起' : '播放'}</span>
-                            </button>
-                            <button
-                              onClick={() => handleDownload(video.videoFileUrl, video.title)}
-                              className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
-                            >
-                              <Download className="w-4 h-4" />
-                              <span>视频</span>
-                            </button>
-                            {video.audioFileUrl && (
-                              <button
-                                onClick={() => handleDownload(video.audioFileUrl!, `${video.title}-audio`)}
-                                className="flex-1 flex items-center justify-center space-x-1 px-3 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors text-sm"
-                              >
-                                <Download className="w-4 h-4" />
-                                <span>音频</span>
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleDelete(video.id)}
-                              className="px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* 原始URL */}
-                        <a
-                          href={video.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-blue-600 hover:underline mt-2 block truncate"
-                        >
-                          查看原视频
-                        </a>
-                      </div>
-                    ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               ))}
             </div>
-          )}
 
-          {/* 分页 */}
-          {totalPages > 1 && (
-            <div className="flex justify-center items-center space-x-2 mt-6">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="px-4 py-2 border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-              >
-                上一页
-              </button>
-              <span className="text-sm text-gray-600">
-                第 {currentPage} / {totalPages} 页
-              </span>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="px-4 py-2 border rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-              >
-                下一页
-              </button>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* 处理进度显示 */}
-      {showProcessing && (
-        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-xl p-6 max-w-md z-50 border-2 border-blue-500">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold">视频处理中...</h3>
-            <Loader className="w-5 h-5 animate-spin text-blue-600" />
-          </div>
-          <div className="space-y-2 max-h-96 overflow-y-auto">
-            {processingTasks.map((task) => (
-              <div key={task.taskId} className="flex items-center space-x-2 text-sm">
-                <div className="flex-1 truncate">{task.videoUrl}</div>
-                {task.status === 'pending' && (
-                  <span className="text-gray-500">等待中...</span>
-                )}
-                {task.status === 'processing' && (
-                  <Loader className="w-4 h-4 animate-spin text-blue-600" />
-                )}
-                {task.status === 'completed' && (
-                  <span className="text-green-600">✓ 完成</span>
-                )}
-                {task.status === 'failed' && (
-                  <span className="text-red-600" title={task.error}>✗ 失败</span>
-                )}
+            {/* 分页控制 */}
+            {totalPages > 1 && (
+              <div className="flex justify-center items-center gap-4 mt-8">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-4 py-2 bg-white border rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  上一页
+                </button>
+                <span className="text-gray-700">
+                  第 {currentPage} / {totalPages} 页
+                </span>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-4 py-2 bg-white border rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  下一页
+                </button>
               </div>
-            ))}
-          </div>
-          <div className="mt-4 text-sm text-gray-600">
-            {processingTasks.filter(t => t.status === 'completed').length} / {processingTasks.length} 已完成
-          </div>
-        </div>
-      )}
+            )}
+          </>
+        )}
+      </div>
 
       {/* 添加视频模态框 */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
-              <h2 className="text-xl font-semibold">添加对标视频</h2>
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="w-6 h-6" />
-              </button>
-            </div>
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">添加对标视频</h2>
+                <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
 
-            <div className="p-6 space-y-4">
-              {videoInputs.map((input, index) => (
-                <div key={index} className="border rounded-lg p-4 relative">
-                  {videoInputs.length > 1 && (
-                    <button
-                      onClick={() => removeVideoInput(index)}
-                      className="absolute top-2 right-2 text-red-600 hover:text-red-700"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  )}
-
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">
-                        视频URL <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={input.url}
-                        onChange={(e) => updateVideoInput(index, 'url', e.target.value)}
-                        placeholder="请输入视频链接"
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
+              <div className="space-y-4">
+                {videoInputs.map((input, index) => (
+                  <div key={index} className="border rounded-lg p-4 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">视频 {index + 1}</span>
+                      {videoInputs.length > 1 && (
+                        <button
+                          onClick={() => removeVideoInput(index)}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      )}
                     </div>
-
-                    <div>
-                      <label className="block text-sm font-medium mb-1">说明</label>
-                      <textarea
-                        value={input.description}
-                        onChange={(e) => updateVideoInput(index, 'description', e.target.value)}
-                        placeholder="添加视频说明（可选）"
-                        rows={2}
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium mb-1">标签</label>
-                      <input
-                        type="text"
-                        value={input.tags}
-                        onChange={(e) => updateVideoInput(index, 'tags', e.target.value)}
-                        placeholder="多个标签用逗号分隔，如：搞笑,剧情,热门"
-                        className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      />
-                    </div>
+                    <input
+                      type="text"
+                      placeholder="视频URL *"
+                      value={input.url}
+                      onChange={(e) => updateVideoInput(index, 'url', e.target.value)}
+                      className="w-full px-3 py-2 border rounded-lg"
+                    />
+                    <input
+                      type="text"
+                      placeholder="操作说明"
+                      value={input.description}
+                      onChange={(e) => updateVideoInput(index, 'description', e.target.value)}
+                      className="w-full px-3 py-2 border rounded-lg"
+                    />
+                    <input
+                      type="text"
+                      placeholder="标签（逗号分隔）"
+                      value={input.tags}
+                      onChange={(e) => updateVideoInput(index, 'tags', e.target.value)}
+                      className="w-full px-3 py-2 border rounded-lg"
+                    />
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
 
               <button
                 onClick={addVideoInput}
-                className="w-full flex items-center justify-center space-x-2 px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
+                className="mt-4 w-full px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-blue-500 hover:text-blue-600 transition-colors"
               >
-                <Plus className="w-5 h-5" />
-                <span>再添加一个视频</span>
+                + 添加更多视频
               </button>
-            </div>
 
-            <div className="sticky bottom-0 bg-gray-50 px-6 py-4 flex justify-end space-x-3 border-t">
-              <button
-                onClick={() => setShowAddModal(false)}
-                className="px-4 py-2 border rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={submitting}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-              >
-                {submitting && <Loader className="w-4 h-4 animate-spin" />}
-                <span>{submitting ? '提交中...' : '提交'}</span>
-              </button>
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submitting ? '提交中...' : '提交'}
+                </button>
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                >
+                  取消
+                </button>
+              </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 上传视频模态框 */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">
+                  {uploadModalData.mode === 'new' ? '上传视频' : `补传视频：${uploadModalData.title}`}
+                </h2>
+                <button onClick={() => setShowUploadModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">视频文件 *</label>
+                  <input
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => setUploadForm({ ...uploadForm, videoFile: e.target.files?.[0] || null })}
+                    className="w-full"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">音频文件（可选）</label>
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => setUploadForm({ ...uploadForm, audioFile: e.target.files?.[0] || null })}
+                    className="w-full"
+                  />
+                </div>
+
+                {uploadModalData.mode === 'new' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">标题 *</label>
+                      <input
+                        type="text"
+                        value={uploadForm.title}
+                        onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">操作说明</label>
+                      <input
+                        type="text"
+                        value={uploadForm.description}
+                        onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">标签（逗号分隔）</label>
+                      <input
+                        type="text"
+                        value={uploadForm.tags}
+                        onChange={(e) => setUploadForm({ ...uploadForm, tags: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">原视频URL（可选）</label>
+                      <input
+                        type="text"
+                        value={uploadForm.url}
+                        onChange={(e) => setUploadForm({ ...uploadForm, url: e.target.value })}
+                        className="w-full px-3 py-2 border rounded-lg"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={handleUpload}
+                  disabled={uploading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {uploading ? '上传中...' : '上传'}
+                </button>
+                <button
+                  onClick={() => setShowUploadModal(false)}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 处理进度浮窗 */}
+      {showProcessing && processingTasks.length > 0 && (
+        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 max-w-md">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold">处理进度</h3>
+            <button
+              onClick={() => setShowProcessing(false)}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            {processingTasks.map(task => (
+              <div key={task.taskId} className="flex items-center gap-2 text-sm">
+                {task.status === 'completed' ? (
+                  <span className="text-green-600">✓</span>
+                ) : task.status === 'failed' ? (
+                  <span className="text-red-600">✗</span>
+                ) : task.status === 'failed_pending_upload' ? (
+                  <span className="text-yellow-600">⚠</span>
+                ) : (
+                  <Loader className="w-4 h-4 animate-spin text-blue-600" />
+                )}
+                <span className="flex-1 truncate">{task.videoUrl}</span>
+                <span className="text-xs text-gray-500">
+                  {task.status === 'pending' && '等待中'}
+                  {task.status === 'processing' && '处理中'}
+                  {task.status === 'completed' && '完成'}
+                  {task.status === 'failed' && '失败'}
+                  {task.status === 'failed_pending_upload' && '待上传'}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       )}
