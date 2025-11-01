@@ -159,8 +159,11 @@ const VideoPromptGenerator: React.FC = () => {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showAllVideosCompleteModal, setShowAllVideosCompleteModal] = useState(false);
   const [taskCount, setTaskCount] = useState(0);
   const [successTaskCount, setSuccessTaskCount] = useState(0);
+  const [completedVideoCount, setCompletedVideoCount] = useState(0);
+  const [failedVideoCount, setFailedVideoCount] = useState(0);
 
   // Modal states for single video regeneration
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
@@ -800,6 +803,14 @@ const VideoPromptGenerator: React.FC = () => {
     if (hasImportedFromScript) {
       setHasImportedFromScript(false);
     }
+
+    // 显示完成提示
+    const processedCount = images.filter(img => {
+      // 跳过尾帧
+      if (img.upLink && !img.downLink) return false;
+      return img.generatedPrompt;
+    }).length;
+    alert(`Prompt 生成完成！共成功生成 ${processedCount} 个提示词。`);
   };
 
   // Update supplement prompt
@@ -1108,6 +1119,17 @@ const VideoPromptGenerator: React.FC = () => {
                   }
                   return null;
                 });
+
+                // 统计完成和失败的任务数
+                const completed = tasks.filter(t => t.status === 'completed').length;
+                const failed = tasks.filter(t => t.status === 'failed').length;
+                setCompletedVideoCount(completed);
+                setFailedVideoCount(failed);
+
+                // 显示完成提示
+                if (tasks.length > 0) {
+                  setShowAllVideosCompleteModal(true);
+                }
               }
             }).catch(error => {
               console.error('Polling error:', error);
@@ -1308,6 +1330,31 @@ const VideoPromptGenerator: React.FC = () => {
   };
 
   /**
+   * Handle single video download with custom filename
+   */
+  const handleDownloadSingleVideo = async (videoUrl: string, filename: string) => {
+    try {
+      const response = await fetch(videoUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert(`下载失败: ${error instanceof Error ? error.message : '未知错误'}`);
+    }
+  };
+
+  /**
    * Open video in modal for playback
    */
   const openVideoModal = (videoUrl: string, versionNumber: number, imageId: string) => {
@@ -1419,6 +1466,41 @@ const VideoPromptGenerator: React.FC = () => {
             <div className="flex justify-center">
               <button
                 onClick={() => setShowSuccessModal(false)}
+                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* All Videos Complete Modal */}
+      {showAllVideosCompleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+            <div className="flex flex-col items-center mb-4">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                <Check className="w-10 h-10 text-green-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">视频生成完成！</h3>
+            </div>
+            <div className="text-gray-600 text-center mb-2">
+              <p className="mb-2">
+                成功生成 <span className="font-bold text-green-600">{completedVideoCount}</span> 个视频
+              </p>
+              {failedVideoCount > 0 && (
+                <p className="text-red-600">
+                  失败 <span className="font-bold">{failedVideoCount}</span> 个
+                </p>
+              )}
+            </div>
+            <p className="text-sm text-gray-500 text-center mb-6">
+              您可以在右侧第四列查看视频结果，或使用「批量下载视频」按钮下载所有视频。
+            </p>
+            <div className="flex justify-center">
+              <button
+                onClick={() => setShowAllVideosCompleteModal(false)}
                 className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
               >
                 确定
@@ -1961,11 +2043,15 @@ const VideoPromptGenerator: React.FC = () => {
 
         {/* Image Cards */}
         <div className="grid grid-cols-1 gap-3">
-          {images.map(image => {
+          {images.map((image, index) => {
             // Skip images that are tail frames in a pair (have upLink but are not also head frames)
             if (image.upLink && !image.downLink) {
               return null;
             }
+
+            // Calculate actual row number (excluding tail frames)
+            const rowNumber = images.slice(0, index).filter(img => !(img.upLink && !img.downLink)).length + 1;
+            const formattedRowNumber = String(rowNumber).padStart(3, '0');
 
             // Check if this is a paired image (head frame)
             const isPaired = !!image.downLink;
@@ -2310,20 +2396,28 @@ const VideoPromptGenerator: React.FC = () => {
 
                             // Show completed video
                             if (task.status === 'completed' && task.videoUrl) {
+                              // Generate filename similar to batch download
+                              const prompt = image.generatedPrompt || 'video';
+                              const cleanPrompt = prompt.substring(0, 50).replace(/[/\\:*?\"<>|]/g, '_');
+                              const filename = taskIds.length > 1
+                                ? `${formattedRowNumber}-${versionNumber}_${cleanPrompt}.mp4`
+                                : `${formattedRowNumber}_${cleanPrompt}.mp4`;
+
                               return (
                                 <div key={taskId} className="relative group">
                                   <div className="absolute top-2 left-2 bg-black bg-opacity-60 text-white text-xs px-2 py-1 rounded z-10">
                                     版本 {versionNumber}
                                   </div>
-                                  <a
-                                    href={task.videoUrl}
-                                    download
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDownloadSingleVideo(task.videoUrl, filename);
+                                    }}
                                     className="absolute top-2 right-2 p-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 z-10"
                                     title="下载此版本"
-                                    onClick={(e) => e.stopPropagation()}
                                   >
                                     <Download className="w-4 h-4" />
-                                  </a>
+                                  </button>
                                   <div
                                     className="relative cursor-pointer"
                                     onClick={() => openVideoModal(task.videoUrl, versionNumber, image.id)}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Play, Download, Calendar, Loader, Trash2, Upload, AlertCircle } from 'lucide-react';
+import { Plus, X, Play, Calendar, Loader, AlertCircle } from 'lucide-react';
 import { API_URL } from '../config/api';
+import { useAuthStore } from '../store/authStore';
 
 interface BenchmarkVideo {
   id: string;
@@ -38,9 +39,11 @@ interface UploadModalData {
 }
 
 const BenchmarkVideoLibrary: React.FC = () => {
+  const { user } = useAuthStore();
+  const isAdmin = user?.role === 'admin';
+
   const [videos, setVideos] = useState<BenchmarkVideo[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
 
   // 添加视频模态框
   const [showAddModal, setShowAddModal] = useState(false);
@@ -59,6 +62,15 @@ const BenchmarkVideoLibrary: React.FC = () => {
     url: '',
   });
   const [uploading, setUploading] = useState(false);
+
+  // 编辑模态框
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingVideo, setEditingVideo] = useState<BenchmarkVideo | null>(null);
+  const [editForm, setEditForm] = useState({
+    description: '',
+    tags: '',
+  });
+  const [editing, setEditing] = useState(false);
 
   // 分页和播放
   const [currentPage, setCurrentPage] = useState(1);
@@ -79,13 +91,12 @@ const BenchmarkVideoLibrary: React.FC = () => {
     try {
       const response = await fetch(`${API_URL}/benchmark-videos`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
       if (response.ok) {
         const data = await response.json();
         setVideos(data.videos || []);
-        setIsAdmin(data.isAdmin || false);
       }
     } catch (error) {
       console.error('Failed to fetch videos:', error);
@@ -122,7 +133,7 @@ const BenchmarkVideoLibrary: React.FC = () => {
       const response = await fetch(`${API_URL}/benchmark-videos`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -170,7 +181,7 @@ const BenchmarkVideoLibrary: React.FC = () => {
         const response = await fetch(`${API_URL}/benchmark-videos/tasks/status`, {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({ taskIds })
@@ -185,7 +196,14 @@ const BenchmarkVideoLibrary: React.FC = () => {
             error: t.error,
           }));
 
-          setProcessingTasks(tasks);
+          // 只在状态真正变化时才更新
+          setProcessingTasks(prevTasks => {
+            const hasChanged = tasks.some((newTask, index) => {
+              const prevTask = prevTasks[index];
+              return !prevTask || prevTask.status !== newTask.status;
+            });
+            return hasChanged ? tasks : prevTasks;
+          });
 
           const allCompleted = tasks.every(t =>
             t.status === 'completed' ||
@@ -230,7 +248,7 @@ const BenchmarkVideoLibrary: React.FC = () => {
       const response = await fetch(`${API_URL}/benchmark-videos/${videoId}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
 
@@ -244,6 +262,61 @@ const BenchmarkVideoLibrary: React.FC = () => {
       console.error('Failed to delete video:', error);
       alert('删除失败，请重试');
     }
+  };
+
+  const openEditModal = (video: BenchmarkVideo) => {
+    setEditingVideo(video);
+    setEditForm({
+      description: video.description || '',
+      tags: video.tags.join(', '),
+    });
+    setShowEditModal(true);
+  };
+
+  const handleEdit = async () => {
+    if (!editingVideo) return;
+
+    setEditing(true);
+    try {
+      const response = await fetch(`${API_URL}/benchmark-videos/${editingVideo.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          description: editForm.description,
+          tags: editForm.tags.split(',').map(t => t.trim()).filter(Boolean),
+        })
+      });
+
+      if (response.ok) {
+        alert('更新成功');
+        setShowEditModal(false);
+        setEditingVideo(null);
+        fetchVideos();
+      } else {
+        alert('更新失败');
+      }
+    } catch (error) {
+      console.error('Failed to update video:', error);
+      alert('更新失败，请重试');
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  const openUploadModalForFailed = (video: BenchmarkVideo) => {
+    setUploadModalData({ mode: '补传', videoId: video.id, title: video.title });
+    setUploadForm({
+      videoFile: null,
+      audioFile: null,
+      title: video.title,
+      description: video.description,
+      tags: video.tags.join(', '),
+      url: video.url,
+    });
+    setShowUploadModal(true);
   };
 
   const handleDownload = async (fileUrl: string, title: string) => {
@@ -266,19 +339,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
       console.error('Download failed:', error);
       alert('下载失败，请重试');
     }
-  };
-
-  const openUploadModal = (mode: 'new' | '补传', videoId?: string, title?: string) => {
-    setUploadModalData({ mode, videoId, title });
-    setUploadForm({
-      videoFile: null,
-      audioFile: null,
-      title: title || '',
-      description: '',
-      tags: '',
-      url: '',
-    });
-    setShowUploadModal(true);
   };
 
   const handleUpload = async () => {
@@ -314,7 +374,7 @@ const BenchmarkVideoLibrary: React.FC = () => {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: formData
       });
@@ -368,27 +428,24 @@ const BenchmarkVideoLibrary: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto">
+      <div className="w-full">
         {/* 标题栏 */}
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-900">对标视频库</h1>
-          {isAdmin && (
-            <div className="space-x-2">
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-              >
-                <Plus className="w-5 h-5" />
-                <span>添加视频</span>
-              </button>
-              <button
-                onClick={() => openUploadModal('new')}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-              >
-                <Upload className="w-5 h-5" />
-                <span>上传视频</span>
-              </button>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">对标视频库</h1>
+            {/* 调试信息 - 临时显示 */}
+            <div className="text-xs text-gray-500 mt-1">
+              调试: isAdmin = {String(isAdmin)}
             </div>
+          </div>
+          {isAdmin && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              <span>添加视频</span>
+            </button>
           )}
         </div>
 
@@ -419,6 +476,7 @@ const BenchmarkVideoLibrary: React.FC = () => {
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b">
                         <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">序号</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">视频</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">下载</th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">操作说明</th>
@@ -430,29 +488,39 @@ const BenchmarkVideoLibrary: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-200">
-                        {groupedVideos[date].map(video => (
+                        {groupedVideos[date].map((video) => {
+                          // 计算全局序号：找到这个视频在所有视频中的位置（从最老的开始）
+                          const globalIndex = videos.length - videos.findIndex(v => v.id === video.id);
+                          return (
                           <tr key={video.id} className="hover:bg-gray-50">
+                            {/* 序号列 */}
+                            <td className="px-4 py-4 text-center">
+                              <span className="text-sm font-medium text-gray-700">{globalIndex}</span>
+                            </td>
+
                             {/* 视频列 */}
                             <td className="px-6 py-4">
                               {video.uploadType === 'failed_pending_upload' ? (
-                                <div className="text-center">
-                                  <AlertCircle className="w-12 h-12 text-yellow-500 mx-auto mb-2" />
-                                  <p className="text-sm text-yellow-600">等待上传</p>
-                                  {isAdmin && (
-                                    <button
-                                      onClick={() => openUploadModal('补传', video.id, video.title)}
-                                      className="mt-2 px-3 py-1 bg-yellow-500 text-white text-sm rounded hover:bg-yellow-600"
-                                    >
-                                      补传视频
-                                    </button>
-                                  )}
+                                <div className="w-40 h-24 bg-red-50 border-2 border-red-300 rounded flex flex-col items-center justify-center text-red-600">
+                                  <AlertCircle className="w-8 h-8 mb-1" />
+                                  <span className="text-xs font-medium">下载失败</span>
                                 </div>
                               ) : (
                                 <button
                                   onClick={() => setPlayingVideo(video.id)}
-                                  className="relative w-48 h-27 bg-gray-200 rounded flex items-center justify-center hover:bg-gray-300 transition-colors cursor-pointer group"
+                                  className="relative w-40 h-24 bg-gray-900 rounded overflow-hidden hover:opacity-90 transition-opacity cursor-pointer group"
                                 >
-                                  <Play className="w-16 h-16 text-gray-400 group-hover:text-blue-600 transition-colors" />
+                                  <video
+                                    src={video.videoFileUrl.startsWith('http')
+                                      ? video.videoFileUrl
+                                      : `${API_URL.replace('/api/v1', '')}${video.videoFileUrl}`}
+                                    className="w-full h-full object-contain"
+                                    muted
+                                    preload="metadata"
+                                  />
+                                  <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all">
+                                    <Play className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  </div>
                                 </button>
                               )}
                             </td>
@@ -460,20 +528,18 @@ const BenchmarkVideoLibrary: React.FC = () => {
                             {/* 下载列 */}
                             <td className="px-6 py-4">
                               {video.uploadType !== 'failed_pending_upload' && (
-                                <div className="flex flex-col space-y-2">
+                                <div className="flex flex-wrap gap-2 text-sm">
                                   <button
                                     onClick={() => handleDownload(video.videoFileUrl, video.title)}
-                                    className="px-3 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 flex items-center gap-1"
+                                    className="text-green-600 hover:text-green-800 hover:underline"
                                   >
-                                    <Download className="w-4 h-4" />
                                     下载视频
                                   </button>
                                   {video.audioFileUrl && (
                                     <button
                                       onClick={() => handleDownload(video.audioFileUrl!, video.title)}
-                                      className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700 flex items-center gap-1"
+                                      className="text-purple-600 hover:text-purple-800 hover:underline"
                                     >
-                                      <Download className="w-4 h-4" />
                                       下载音频
                                     </button>
                                   )}
@@ -518,17 +584,34 @@ const BenchmarkVideoLibrary: React.FC = () => {
                             {/* 操作列（仅管理员） */}
                             {isAdmin && (
                               <td className="px-6 py-4">
-                                <button
-                                  onClick={() => handleDelete(video.id)}
-                                  className="px-3 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700 flex items-center gap-1"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                  删除
-                                </button>
+                                <div className="flex flex-wrap gap-2 text-sm">
+                                  {/* 如果是下载失败的视频，显示上传按钮 */}
+                                  {video.uploadType === 'failed_pending_upload' && (
+                                    <button
+                                      onClick={() => openUploadModalForFailed(video)}
+                                      className="text-orange-600 hover:text-orange-800 hover:underline"
+                                    >
+                                      上传
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => openEditModal(video)}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline"
+                                  >
+                                    编辑
+                                  </button>
+                                  <button
+                                    onClick={() => handleDelete(video.id)}
+                                    className="text-red-600 hover:text-red-800 hover:underline"
+                                  >
+                                    删除
+                                  </button>
+                                </div>
                               </td>
                             )}
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -742,7 +825,7 @@ const BenchmarkVideoLibrary: React.FC = () => {
 
       {/* 处理进度浮窗 */}
       {showProcessing && processingTasks.length > 0 && (
-        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 max-w-md">
+        <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 max-w-md z-50 transition-all duration-300 ease-in-out">
           <div className="flex justify-between items-center mb-3">
             <h3 className="font-semibold">处理进度</h3>
             <button
@@ -781,18 +864,18 @@ const BenchmarkVideoLibrary: React.FC = () => {
       {/* 视频播放弹窗 */}
       {playingVideo && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-8"
           onClick={() => setPlayingVideo(null)}
         >
           <div
-            className="relative max-w-4xl w-full"
+            className="relative bg-white rounded-lg shadow-2xl max-w-3xl w-full overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               onClick={() => setPlayingVideo(null)}
-              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+              className="absolute top-2 right-2 z-10 bg-gray-800 bg-opacity-75 text-white hover:bg-opacity-100 rounded-full p-1.5 transition-all"
             >
-              <X className="w-8 h-8" />
+              <X className="w-5 h-5" />
             </button>
             <video
               src={(() => {
@@ -804,8 +887,91 @@ const BenchmarkVideoLibrary: React.FC = () => {
               })()}
               controls
               autoPlay
-              className="w-full rounded-lg"
+              className="w-full aspect-video bg-black"
             />
+          </div>
+        </div>
+      )}
+
+      {/* 编辑模态框 */}
+      {showEditModal && editingVideo && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">编辑视频信息</h2>
+                <button onClick={() => setShowEditModal(false)} className="text-gray-500 hover:text-gray-700">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    标题（不可编辑）
+                  </label>
+                  <input
+                    type="text"
+                    value={editingVideo.title}
+                    disabled
+                    className="w-full px-3 py-2 border rounded-lg bg-gray-100 text-gray-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    操作说明
+                  </label>
+                  <textarea
+                    value={editForm.description}
+                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    rows={3}
+                    placeholder="描述这个视频的用途、特点等"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    标签（用逗号分隔）
+                  </label>
+                  <input
+                    type="text"
+                    value={editForm.tags}
+                    onChange={(e) => setEditForm({ ...editForm, tags: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="例如: 动作, 特效, 转场"
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    当前标签: {editForm.tags.split(',').map(t => t.trim()).filter(Boolean).join(', ')}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                  disabled={editing}
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleEdit}
+                  disabled={editing}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {editing ? (
+                    <>
+                      <Loader className="w-4 h-4 animate-spin" />
+                      <span>保存中...</span>
+                    </>
+                  ) : (
+                    <span>保存</span>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
