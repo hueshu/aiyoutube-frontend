@@ -25,7 +25,6 @@ interface ImagePrompt {
 }
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyDwD04ZVY2ff7nWdjZNTJK4sgy5nyYwbLA';
-const CLAUDE_API_KEY = import.meta.env.VITE_CLAUDE_API_KEY || '';
 const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 type AIModel = 'gemini' | 'claude';
@@ -598,14 +597,14 @@ const VideoPromptGenerator: React.FC = () => {
         ]
       };
 
+      // 通过后端代理调用 Claude API（解决 CORS 问题）
       const response = await fetch(
-        'https://api.anthropic.com/v1/messages',
+        `${API_URL}/ai-prompt/claude`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-api-key': CLAUDE_API_KEY,
-            'anthropic-version': '2023-06-01'
+            'Authorization': `Bearer ${getAuthToken()}`
           },
           body: JSON.stringify(requestBody)
         }
@@ -687,14 +686,14 @@ const VideoPromptGenerator: React.FC = () => {
         ]
       };
 
+      // 通过后端代理调用 Claude API（解决 CORS 问题）
       const response = await fetch(
-        'https://api.anthropic.com/v1/messages',
+        `${API_URL}/ai-prompt/claude`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-api-key': CLAUDE_API_KEY,
-            'anthropic-version': '2023-06-01'
+            'Authorization': `Bearer ${getAuthToken()}`
           },
           body: JSON.stringify(requestBody)
         }
