@@ -24,7 +24,11 @@ interface ImagePrompt {
   downLink?: string;  // ID of the image linked downward (this as head frame)
 }
 
-const GEMINI_API_KEY = 'AIzaSyDwD04ZVY2ff7nWdjZNTJK4sgy5nyYwbLA';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyDwD04ZVY2ff7nWdjZNTJK4sgy5nyYwbLA';
+const CLAUDE_API_KEY = import.meta.env.VITE_CLAUDE_API_KEY || '';
+const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
+
+type AIModel = 'gemini' | 'claude';
 
 // System prompt from the document
 const SYSTEM_PROMPT = `# 身份和使命
@@ -148,6 +152,12 @@ const VideoPromptGenerator: React.FC = () => {
   const [showCharacterReplacer, setShowCharacterReplacer] = useState(false);
   const [detectedCharacters, setDetectedCharacters] = useState<string[]>([]);
   const [hasImportedFromScript, setHasImportedFromScript] = useState(false);
+
+  // AI Model selection state
+  const [selectedModel, setSelectedModel] = useState<AIModel>(() => {
+    // Load from localStorage or default to gemini
+    return (localStorage.getItem('aiModel') as AIModel) || 'gemini';
+  });
 
   // Hailuo video generation states
   const [hailuoTasks, setHailuoTasks] = useState<Map<string, string[]>>(new Map()); // imageId -> taskId[] mapping (support multiple versions)
@@ -521,6 +531,135 @@ const VideoPromptGenerator: React.FC = () => {
     }
   };
 
+  // Call Claude API for single image
+  const generatePromptForImageClaude = async (image: ImagePrompt) => {
+    try {
+      const base64Image = await fileToBase64(image.file);
+
+      const requestBody = {
+        model: CLAUDE_MODEL,
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: image.file.type,
+                  data: base64Image
+                }
+              },
+              {
+                type: 'text',
+                text: SYSTEM_PROMPT + (image.supplementPrompt ? `\n\n补充说明：${image.supplementPrompt}` : '') + '\n\n请分析这张图片，生成适合图转视频的提示词。'
+              }
+            ]
+          }
+        ]
+      };
+
+      const response = await fetch(
+        'https://api.anthropic.com/v1/messages',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': CLAUDE_API_KEY,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify(requestBody)
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Claude API Error Response:', errorData);
+        throw new Error(`Claude API request failed: ${response.status} - ${JSON.stringify(errorData)}`);
+      }
+
+      const data = await response.json();
+      console.log('Claude API Response:', data);
+      const generatedText = data.content?.[0]?.text || '';
+      console.log('Extracted text:', generatedText);
+      return generatedText.trim();
+    } catch (error) {
+      console.error('Error generating prompt with Claude:', error);
+      throw error;
+    }
+  };
+
+  // Generate prompt for paired images using Claude (head and tail frames)
+  const generatePromptForPairedImagesClaude = async (headImage: ImagePrompt, tailImage: ImagePrompt) => {
+    try {
+      const base64HeadImage = await fileToBase64(headImage.file);
+      const base64TailImage = await fileToBase64(tailImage.file);
+
+      const pairedPrompt = '这两张图作为首尾帧。第一个图作为首帧，第二个图作为尾帧。就是从第一个图的状态，运镜变化到第二个图的状态。';
+
+      const requestBody = {
+        model: CLAUDE_MODEL,
+        max_tokens: 4096,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: headImage.file.type,
+                  data: base64HeadImage
+                }
+              },
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: tailImage.file.type,
+                  data: base64TailImage
+                }
+              },
+              {
+                type: 'text',
+                text: SYSTEM_PROMPT + `\n\n补充说明：${pairedPrompt}\n\n请分析这两张图片，生成适合图转视频的提示词，描述从第一张图到第二张图的运镜变化。`
+              }
+            ]
+          }
+        ]
+      };
+
+      const response = await fetch(
+        'https://api.anthropic.com/v1/messages',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': CLAUDE_API_KEY,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify(requestBody)
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Claude API Error Response:', errorData);
+        throw new Error(`Claude API request failed: ${response.status} - ${JSON.stringify(errorData)}`);
+      }
+
+      const data = await response.json();
+      console.log('Claude API Response for paired images:', data);
+      const generatedText = data.content?.[0]?.text || '';
+      console.log('Extracted text:', generatedText);
+      return generatedText.trim();
+    } catch (error) {
+      console.error('Error generating prompt for paired images with Claude:', error);
+      throw error;
+    }
+  };
+
   // Helper function to get auth token
   const getAuthToken = () => {
     return localStorage.getItem('token') || '';
@@ -712,10 +851,18 @@ const VideoPromptGenerator: React.FC = () => {
       let prompt: string;
       if (isPaired && tailImage) {
         // Generate for paired images
-        prompt = await generatePromptForPairedImages(image, tailImage);
+        if (selectedModel === 'claude') {
+          prompt = await generatePromptForPairedImagesClaude(image, tailImage);
+        } else {
+          prompt = await generatePromptForPairedImages(image, tailImage);
+        }
       } else {
         // Generate for single image
-        prompt = await generatePromptForImage(image);
+        if (selectedModel === 'claude') {
+          prompt = await generatePromptForImageClaude(image);
+        } else {
+          prompt = await generatePromptForImage(image);
+        }
       }
 
       // Update generated prompt for head image (single or paired)
@@ -771,10 +918,18 @@ const VideoPromptGenerator: React.FC = () => {
         let prompt: string;
         if (isPaired && tailImage) {
           // Generate for paired images
-          prompt = await generatePromptForPairedImages(image, tailImage);
+          if (selectedModel === 'claude') {
+            prompt = await generatePromptForPairedImagesClaude(image, tailImage);
+          } else {
+            prompt = await generatePromptForPairedImages(image, tailImage);
+          }
         } else {
           // Generate for single image
-          prompt = await generatePromptForImage(image);
+          if (selectedModel === 'claude') {
+            prompt = await generatePromptForImageClaude(image);
+          } else {
+            prompt = await generatePromptForImage(image);
+          }
         }
 
         setImages(prev => prev.map(img =>
@@ -1737,12 +1892,53 @@ const VideoPromptGenerator: React.FC = () => {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            图转视频 Prompt 生成器
-          </h1>
-          <p className="text-gray-600">
-            上传图片，使用 Gemini 2.5 Pro 生成适合图转视频的提示词
-          </p>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                图转视频 Prompt 生成器
+              </h1>
+              <p className="text-gray-600">
+                上传图片，使用 AI 模型生成适合图转视频的提示词
+              </p>
+            </div>
+
+            {/* AI Model Selector */}
+            <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                AI 模型选择
+              </label>
+              <div className="flex gap-4">
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="radio"
+                    name="aiModel"
+                    value="gemini"
+                    checked={selectedModel === 'gemini'}
+                    onChange={(e) => {
+                      setSelectedModel(e.target.value as AIModel);
+                      localStorage.setItem('aiModel', e.target.value);
+                    }}
+                    className="mr-2 w-4 h-4 text-blue-600"
+                  />
+                  <span className="text-sm text-gray-700">Gemini 2.5 Flash</span>
+                </label>
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="radio"
+                    name="aiModel"
+                    value="claude"
+                    checked={selectedModel === 'claude'}
+                    onChange={(e) => {
+                      setSelectedModel(e.target.value as AIModel);
+                      localStorage.setItem('aiModel', e.target.value);
+                    }}
+                    className="mr-2 w-4 h-4 text-blue-600"
+                  />
+                  <span className="text-sm text-gray-700">Claude Sonnet 4.5</span>
+                </label>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Upload Section */}
