@@ -445,18 +445,37 @@ const VideoPromptGenerator: React.FC = () => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.error('API Error Response:', errorData);
-        throw new Error(`API request failed: ${response.status} - ${JSON.stringify(errorData)}`);
+        console.error('Gemini API Error Response:', errorData);
+        const errorMessage = `Gemini API 失败 (${response.status}): ${JSON.stringify(errorData, null, 2)}`;
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
-      console.log('API Response:', data);
-      const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      console.log('Gemini API Response:', data);
+
+      // Check if response has candidates
+      if (!data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+        const errorMessage = `Gemini API 返回格式异常: ${JSON.stringify(data, null, 2)}`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      const generatedText = data.candidates[0]?.content?.parts?.[0]?.text || '';
+      if (!generatedText) {
+        const errorMessage = `Gemini API 未返回文本内容: ${JSON.stringify(data, null, 2)}`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
       console.log('Extracted text:', generatedText);
       return generatedText.trim();
     } catch (error) {
-      console.error('Error generating prompt:', error);
-      throw error;
+      console.error('Error generating prompt with Gemini:', error);
+      // Re-throw with full error details
+      if (error instanceof Error) {
+        throw new Error(`Gemini 生成失败: ${error.message}`);
+      }
+      throw new Error(`Gemini 生成失败: ${String(error)}`);
     }
   };
 
@@ -516,18 +535,37 @@ const VideoPromptGenerator: React.FC = () => {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.error('API Error Response:', errorData);
-        throw new Error(`API request failed: ${response.status} - ${JSON.stringify(errorData)}`);
+        console.error('Gemini API Error Response:', errorData);
+        const errorMessage = `Gemini API 失败 (${response.status}): ${JSON.stringify(errorData, null, 2)}`;
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
-      console.log('API Response for paired images:', data);
-      const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      console.log('Gemini API Response for paired images:', data);
+
+      // Check if response has candidates
+      if (!data.candidates || !Array.isArray(data.candidates) || data.candidates.length === 0) {
+        const errorMessage = `Gemini API 返回格式异常: ${JSON.stringify(data, null, 2)}`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      const generatedText = data.candidates[0]?.content?.parts?.[0]?.text || '';
+      if (!generatedText) {
+        const errorMessage = `Gemini API 未返回文本内容: ${JSON.stringify(data, null, 2)}`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
       console.log('Extracted text:', generatedText);
       return generatedText.trim();
     } catch (error) {
-      console.error('Error generating prompt for paired images:', error);
-      throw error;
+      console.error('Error generating prompt for paired images with Gemini:', error);
+      // Re-throw with full error details
+      if (error instanceof Error) {
+        throw new Error(`Gemini 配对图生成失败: ${error.message}`);
+      }
+      throw new Error(`Gemini 配对图生成失败: ${String(error)}`);
     }
   };
 
@@ -576,17 +614,36 @@ const VideoPromptGenerator: React.FC = () => {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.error('Claude API Error Response:', errorData);
-        throw new Error(`Claude API request failed: ${response.status} - ${JSON.stringify(errorData)}`);
+        const errorMessage = `Claude API 失败 (${response.status}): ${JSON.stringify(errorData, null, 2)}`;
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
       console.log('Claude API Response:', data);
-      const generatedText = data.content?.[0]?.text || '';
+
+      // Check if response has the expected structure
+      if (!data.content || !Array.isArray(data.content) || data.content.length === 0) {
+        const errorMessage = `Claude API 返回格式异常: ${JSON.stringify(data, null, 2)}`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      const generatedText = data.content[0]?.text || '';
+      if (!generatedText) {
+        const errorMessage = `Claude API 未返回文本内容: ${JSON.stringify(data, null, 2)}`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
       console.log('Extracted text:', generatedText);
       return generatedText.trim();
     } catch (error) {
       console.error('Error generating prompt with Claude:', error);
-      throw error;
+      // Re-throw with full error details
+      if (error instanceof Error) {
+        throw new Error(`Claude 生成失败: ${error.message}`);
+      }
+      throw new Error(`Claude 生成失败: ${String(error)}`);
     }
   };
 
@@ -646,17 +703,36 @@ const VideoPromptGenerator: React.FC = () => {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         console.error('Claude API Error Response:', errorData);
-        throw new Error(`Claude API request failed: ${response.status} - ${JSON.stringify(errorData)}`);
+        const errorMessage = `Claude API 失败 (${response.status}): ${JSON.stringify(errorData, null, 2)}`;
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
       console.log('Claude API Response for paired images:', data);
-      const generatedText = data.content?.[0]?.text || '';
+
+      // Check if response has the expected structure
+      if (!data.content || !Array.isArray(data.content) || data.content.length === 0) {
+        const errorMessage = `Claude API 返回格式异常: ${JSON.stringify(data, null, 2)}`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
+      const generatedText = data.content[0]?.text || '';
+      if (!generatedText) {
+        const errorMessage = `Claude API 未返回文本内容: ${JSON.stringify(data, null, 2)}`;
+        console.error(errorMessage);
+        throw new Error(errorMessage);
+      }
+
       console.log('Extracted text:', generatedText);
       return generatedText.trim();
     } catch (error) {
       console.error('Error generating prompt for paired images with Claude:', error);
-      throw error;
+      // Re-throw with full error details
+      if (error instanceof Error) {
+        throw new Error(`Claude 配对图生成失败: ${error.message}`);
+      }
+      throw new Error(`Claude 配对图生成失败: ${String(error)}`);
     }
   };
 
@@ -874,9 +950,11 @@ const VideoPromptGenerator: React.FC = () => {
           : img
       ));
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '生成失败';
+      console.error('Generate single error:', errorMessage);
       setImages(prev => prev.map(img =>
         (img.id === imageId || (isPaired && img.id === tailImage?.id))
-          ? { ...img, error: '生成失败', isProcessing: false }
+          ? { ...img, error: errorMessage, isProcessing: false }
           : img
       ));
     }
@@ -940,9 +1018,11 @@ const VideoPromptGenerator: React.FC = () => {
             : img
         ));
       } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : '生成失败';
+        console.error('Generate batch error:', errorMessage);
         setImages(prev => prev.map(img =>
           (img.id === image.id || (isPaired && img.id === tailImage?.id))
-            ? { ...img, error: '生成失败', isProcessing: false }
+            ? { ...img, error: errorMessage, isProcessing: false }
             : img
         ));
       }
