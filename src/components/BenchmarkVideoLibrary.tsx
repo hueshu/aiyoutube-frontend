@@ -11,12 +11,12 @@ interface BenchmarkVideo {
   tags: string[];
   videoFileUrl: string;
   audioFileUrl?: string;
-  previewUrl?: string;
+  videoInfoUrl?: string;
+  clipsUrl?: string;
+  keyframesUrl?: string;
+  shotsInfoUrl?: string;
   createdAt: string;
   createdBy: string;
-  uploadType?: 'url' | 'manual' | 'failed_pending_upload';
-  originalFileName?: string;
-  taskId?: string;
 }
 
 interface VideoInput {
@@ -28,14 +28,8 @@ interface VideoInput {
 interface VideoTask {
   taskId: string;
   videoUrl: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'failed_pending_upload';
+  status: 'pending' | 'locked' | 'processing' | 'completed' | 'failed';
   error?: string;
-}
-
-interface UploadModalData {
-  mode: 'new' | '补传';
-  videoId?: string;
-  title?: string;
 }
 
 const BenchmarkVideoLibrary: React.FC = () => {
@@ -50,18 +44,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
   const [videoInputs, setVideoInputs] = useState<VideoInput[]>([{ url: '', description: '', tags: '' }]);
   const [submitting, setSubmitting] = useState(false);
 
-  // 手动上传模态框
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadModalData, setUploadModalData] = useState<UploadModalData>({ mode: 'new' });
-  const [uploadForm, setUploadForm] = useState({
-    videoFile: null as File | null,
-    audioFile: null as File | null,
-    title: '',
-    description: '',
-    tags: '',
-    url: '',
-  });
-  const [uploading, setUploading] = useState(false);
 
   // 编辑模态框
   const [showEditModal, setShowEditModal] = useState(false);
@@ -130,7 +112,7 @@ const BenchmarkVideoLibrary: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const response = await fetch(`${API_URL}/benchmark-videos`, {
+      const response = await fetch(`${API_URL}/benchmark-video-tasks/submit`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -145,24 +127,22 @@ const BenchmarkVideoLibrary: React.FC = () => {
         })
       });
 
-      if (response.status === 202) {
+      if (response.ok) {
         const data = await response.json();
-        const tasks: VideoTask[] = data.tasks.map((t: any) => ({
-          taskId: t.taskId,
-          videoUrl: t.videoUrl,
-          status: t.status,
+        const taskIds = data.taskIds || [];
+
+        // Initialize task list
+        const tasks: VideoTask[] = taskIds.map((taskId: string) => ({
+          taskId,
+          videoUrl: '',
+          status: 'pending' as const,
         }));
 
         setProcessingTasks(tasks);
         setShowAddModal(false);
         setShowProcessing(true);
         setVideoInputs([{ url: '', description: '', tags: '' }]);
-        startPollingTasks(tasks.map(t => t.taskId));
-      } else if (response.ok) {
-        alert('视频添加成功！');
-        setShowAddModal(false);
-        setVideoInputs([{ url: '', description: '', tags: '' }]);
-        fetchVideos();
+        startPollingTasks(taskIds);
       } else {
         const error = await response.json();
         alert(`添加失败: ${error.error || '未知错误'}`);
@@ -178,53 +158,51 @@ const BenchmarkVideoLibrary: React.FC = () => {
   const startPollingTasks = (taskIds: string[]) => {
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch(`${API_URL}/benchmark-videos/tasks/status`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ taskIds })
-        });
+        // Query each task individually
+        const taskPromises = taskIds.map(taskId =>
+          fetch(`${API_URL}/benchmark-video-tasks/${taskId}`, {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+          }).then(res => res.ok ? res.json() : null)
+        );
 
-        if (response.ok) {
-          const data = await response.json();
-          const tasks: VideoTask[] = data.tasks.map((t: any) => ({
-            taskId: t.taskId,
-            videoUrl: t.videoUrl,
-            status: t.status,
-            error: t.error,
+        const taskResults = await Promise.all(taskPromises);
+        const tasks: VideoTask[] = taskResults
+          .filter(result => result && result.task)
+          .map((result: any) => ({
+            taskId: result.task.taskId,
+            videoUrl: result.task.videoUrl,
+            status: result.task.status,
+            error: result.task.errorMessage,
           }));
 
-          // 只在状态真正变化时才更新
-          setProcessingTasks(prevTasks => {
-            const hasChanged = tasks.some((newTask, index) => {
-              const prevTask = prevTasks[index];
-              return !prevTask || prevTask.status !== newTask.status;
-            });
-            return hasChanged ? tasks : prevTasks;
+        // Only update when status actually changes
+        setProcessingTasks(prevTasks => {
+          const hasChanged = tasks.some((newTask, index) => {
+            const prevTask = prevTasks[index];
+            return !prevTask || prevTask.status !== newTask.status;
           });
+          return hasChanged ? tasks : prevTasks;
+        });
 
-          const allCompleted = tasks.every(t =>
-            t.status === 'completed' ||
-            t.status === 'failed' ||
-            t.status === 'failed_pending_upload'
-          );
+        const allCompleted = tasks.every(t =>
+          t.status === 'completed' ||
+          t.status === 'failed'
+        );
 
-          if (allCompleted) {
-            clearInterval(pollInterval);
-            fetchVideos();
+        if (allCompleted) {
+          clearInterval(pollInterval);
+          fetchVideos();
 
-            const completedCount = tasks.filter(t => t.status === 'completed').length;
-            const failedCount = tasks.filter(t => t.status === 'failed').length;
-            const pendingUploadCount = tasks.filter(t => t.status === 'failed_pending_upload').length;
+          const completedCount = tasks.filter(t => t.status === 'completed').length;
+          const failedCount = tasks.filter(t => t.status === 'failed').length;
 
-            setTimeout(() => {
-              let message = `处理完成！成功: ${completedCount}个`;
-              if (failedCount > 0) message += `，失败: ${failedCount}个`;
-              if (pendingUploadCount > 0) message += `，待上传: ${pendingUploadCount}个`;
-              alert(message);
-              setShowProcessing(false);
+          setTimeout(() => {
+            let message = `处理完成！成功: ${completedCount}个`;
+            if (failedCount > 0) message += `，失败: ${failedCount}个`;
+            alert(message);
+            setShowProcessing(false);
               setProcessingTasks([]);
             }, 1000);
           }
@@ -500,51 +478,74 @@ const BenchmarkVideoLibrary: React.FC = () => {
 
                             {/* 视频列 */}
                             <td className="px-6 py-4">
-                              {video.uploadType === 'failed_pending_upload' ? (
-                                <div className="w-40 h-24 bg-red-50 border-2 border-red-300 rounded flex flex-col items-center justify-center text-red-600">
-                                  <AlertCircle className="w-8 h-8 mb-1" />
-                                  <span className="text-xs font-medium">下载失败</span>
+                              <button
+                                onClick={() => setPlayingVideo(video.id)}
+                                className="relative w-40 h-24 bg-gray-900 rounded overflow-hidden hover:opacity-90 transition-opacity cursor-pointer group"
+                              >
+                                <video
+                                  src={video.videoFileUrl.startsWith('http')
+                                    ? video.videoFileUrl
+                                    : `${API_URL.replace('/api/v1', '')}${video.videoFileUrl}`}
+                                  className="w-full h-full object-contain"
+                                  muted
+                                  preload="metadata"
+                                />
+                                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all">
+                                  <Play className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                                 </div>
-                              ) : (
-                                <button
-                                  onClick={() => setPlayingVideo(video.id)}
-                                  className="relative w-40 h-24 bg-gray-900 rounded overflow-hidden hover:opacity-90 transition-opacity cursor-pointer group"
-                                >
-                                  <video
-                                    src={video.videoFileUrl.startsWith('http')
-                                      ? video.videoFileUrl
-                                      : `${API_URL.replace('/api/v1', '')}${video.videoFileUrl}`}
-                                    className="w-full h-full object-contain"
-                                    muted
-                                    preload="metadata"
-                                  />
-                                  <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all">
-                                    <Play className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                                  </div>
-                                </button>
-                              )}
+                              </button>
                             </td>
 
                             {/* 下载列 */}
                             <td className="px-6 py-4">
-                              {video.uploadType !== 'failed_pending_upload' && (
-                                <div className="flex flex-wrap gap-2 text-sm">
+                              <div className="flex flex-col gap-1 text-sm">
+                                <button
+                                  onClick={() => handleDownload(video.videoFileUrl, video.title)}
+                                  className="text-green-600 hover:text-green-800 hover:underline text-left"
+                                >
+                                  下载视频
+                                </button>
+                                {video.audioFileUrl && (
                                   <button
-                                    onClick={() => handleDownload(video.videoFileUrl, video.title)}
-                                    className="text-green-600 hover:text-green-800 hover:underline"
+                                    onClick={() => handleDownload(video.audioFileUrl!, `${video.title}_audio`)}
+                                    className="text-purple-600 hover:text-purple-800 hover:underline text-left"
                                   >
-                                    下载视频
+                                    下载音频
                                   </button>
-                                  {video.audioFileUrl && (
-                                    <button
-                                      onClick={() => handleDownload(video.audioFileUrl!, video.title)}
-                                      className="text-purple-600 hover:text-purple-800 hover:underline"
-                                    >
-                                      下载音频
-                                    </button>
-                                  )}
-                                </div>
-                              )}
+                                )}
+                                {video.videoInfoUrl && (
+                                  <button
+                                    onClick={() => handleDownload(video.videoInfoUrl!, `${video.title}_video_info`)}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline text-left"
+                                  >
+                                    视频信息
+                                  </button>
+                                )}
+                                {video.clipsUrl && (
+                                  <button
+                                    onClick={() => handleDownload(video.clipsUrl!, `${video.title}_clips`)}
+                                    className="text-orange-600 hover:text-orange-800 hover:underline text-left"
+                                  >
+                                    分镜片段
+                                  </button>
+                                )}
+                                {video.keyframesUrl && (
+                                  <button
+                                    onClick={() => handleDownload(video.keyframesUrl!, `${video.title}_keyframes`)}
+                                    className="text-indigo-600 hover:text-indigo-800 hover:underline text-left"
+                                  >
+                                    关键帧
+                                  </button>
+                                )}
+                                {video.shotsInfoUrl && (
+                                  <button
+                                    onClick={() => handleDownload(video.shotsInfoUrl!, `${video.title}_shots_info`)}
+                                    className="text-teal-600 hover:text-teal-800 hover:underline text-left"
+                                  >
+                                    镜头信息
+                                  </button>
+                                )}
+                              </div>
                             </td>
 
                             {/* 操作说明列 */}
