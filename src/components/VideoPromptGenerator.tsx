@@ -24,7 +24,7 @@ interface ImagePrompt {
   downLink?: string;  // ID of the image linked downward (this as head frame)
 }
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyDwD04ZVY2ff7nWdjZNTJK4sgy5nyYwbLA';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyBbEfLivMutCUyJcZw4PRtgDpusrK3coVc';
 const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 type AIModel = 'gemini' | 'claude';

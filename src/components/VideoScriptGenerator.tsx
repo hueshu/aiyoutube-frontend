@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Download, Copy, Loader, Check } from 'lucide-react';
+import { API_URL } from '../config/api';
 
 interface ImageFile {
   id: string;
@@ -8,7 +9,10 @@ interface ImageFile {
   preview: string;
 }
 
-const GEMINI_API_KEY = 'AIzaSyDwD04ZVY2ff7nWdjZNTJK4sgy5nyYwbLA';
+type AIModel = 'gemini' | 'claude';
+
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyBbEfLivMutCUyJcZw4PRtgDpusrK3coVc';
+const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 // Full prompt document content
 const PROMPT_DOCUMENT = `## 十一、剧情节奏与视觉设计
@@ -683,6 +687,11 @@ const VideoScriptGenerator: React.FC = () => {
   const [copiedState, setCopiedState] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
+  // AI Model selection state
+  const [selectedModel, setSelectedModel] = useState<AIModel>(() => {
+    return (localStorage.getItem('scriptGeneratorModel') as AIModel) || 'gemini';
+  });
+
   // Update supplement prompt when images change
   useEffect(() => {
     if (images.length > 0) {
@@ -744,6 +753,68 @@ const VideoScriptGenerator: React.FC = () => {
     });
   };
 
+  // Get auth token from localStorage
+  const getAuthToken = () => {
+    return localStorage.getItem('token') || '';
+  };
+
+  // Generate with Claude API (multi-image)
+  const generateWithClaude = async (images: Array<{ file: File }>, supplementPrompt: string) => {
+    try {
+      // Convert images to base64
+      const imageContents = await Promise.all(
+        images.map(async (img) => ({
+          type: 'image' as const,
+          source: {
+            type: 'base64' as const,
+            media_type: img.file.type,
+            data: await fileToBase64(img.file)
+          }
+        }))
+      );
+
+      // Build messages with PROMPT_DOCUMENT, supplementPrompt, and images
+      const requestBody = {
+        model: CLAUDE_MODEL,
+        max_tokens: 8000,
+        system: SYSTEM_INSTRUCTION,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: PROMPT_DOCUMENT },
+              { type: 'text', text: supplementPrompt },
+              ...imageContents
+            ]
+          }
+        ]
+      };
+
+      const response = await fetch(
+        `${API_URL}/ai-prompt/claude`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${getAuthToken()}`
+          },
+          body: JSON.stringify(requestBody)
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(JSON.stringify(errorData, null, 2));
+      }
+
+      const data = await response.json();
+      return data.content[0].text;
+    } catch (error) {
+      console.error('Claude API error:', error);
+      throw error;
+    }
+  };
+
   // Generate script
   const handleGenerate = async () => {
     if (images.length === 0) {
@@ -755,46 +826,52 @@ const VideoScriptGenerator: React.FC = () => {
     setCsvOutput('');
 
     try {
-      // Convert all images to base64
-      const imageParts = await Promise.all(
-        images.map(async (img) => ({
-          inline_data: {
-            mime_type: img.file.type,
-            data: await fileToBase64(img.file)
+      let text: string;
+
+      if (selectedModel === 'claude') {
+        // Use Claude API
+        text = await generateWithClaude(images, supplementPrompt);
+      } else {
+        // Use Gemini API
+        const imageParts = await Promise.all(
+          images.map(async (img) => ({
+            inline_data: {
+              mime_type: img.file.type,
+              data: await fileToBase64(img.file)
+            }
+          }))
+        );
+
+        const generateResponse = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              system_instruction: {
+                parts: [{ text: SYSTEM_INSTRUCTION }]
+              },
+              contents: [
+                {
+                  parts: [
+                    { text: PROMPT_DOCUMENT },
+                    { text: supplementPrompt },
+                    ...imageParts
+                  ]
+                }
+              ]
+            })
           }
-        }))
-      );
+        );
 
-      // Send prompt document + images + supplement prompt
-      const generateResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: {
-              parts: [{ text: SYSTEM_INSTRUCTION }]
-            },
-            contents: [
-              {
-                parts: [
-                  { text: PROMPT_DOCUMENT },
-                  { text: supplementPrompt },
-                  ...imageParts
-                ]
-              }
-            ]
-          })
+        if (!generateResponse.ok) {
+          const errorData = await generateResponse.json();
+          throw new Error(JSON.stringify(errorData, null, 2));
         }
-      );
 
-      if (!generateResponse.ok) {
-        const errorData = await generateResponse.json();
-        throw new Error(errorData.error?.message || 'Generation failed');
+        const data = await generateResponse.json();
+        text = data.candidates[0].content.parts[0].text;
       }
-
-      const data = await generateResponse.json();
-      const text = data.candidates[0].content.parts[0].text;
 
       // Clean up the response (remove markdown code blocks if any)
       let cleanedText = text.trim();
@@ -934,6 +1011,44 @@ const VideoScriptGenerator: React.FC = () => {
           />
           <p className="text-sm text-gray-500 mt-2">
             * 图片数量变化时会自动更新
+          </p>
+        </div>
+
+        {/* Step 3: Select AI Model */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h2 className="text-xl font-semibold text-gray-800 mb-4">
+            第三步：选择AI模型
+          </h2>
+          <div className="flex space-x-4">
+            <button
+              onClick={() => {
+                setSelectedModel('gemini');
+                localStorage.setItem('scriptGeneratorModel', 'gemini');
+              }}
+              className={`px-6 py-3 rounded-md font-medium transition-colors ${
+                selectedModel === 'gemini'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Gemini 2.5 Flash
+            </button>
+            <button
+              onClick={() => {
+                setSelectedModel('claude');
+                localStorage.setItem('scriptGeneratorModel', 'claude');
+              }}
+              className={`px-6 py-3 rounded-md font-medium transition-colors ${
+                selectedModel === 'claude'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Claude Sonnet 4.5
+            </button>
+          </div>
+          <p className="text-sm text-gray-500 mt-2">
+            当前模型：{selectedModel === 'gemini' ? 'Gemini 2.5 Flash' : 'Claude Sonnet 4.5'}
           </p>
         </div>
 
