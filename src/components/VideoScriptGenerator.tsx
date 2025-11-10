@@ -9,9 +9,12 @@ interface ImageFile {
   preview: string;
 }
 
-type AIModel = 'gemini' | 'claude';
+type AIModel = 'gemini-flash' | 'gemini-pro' | 'claude';
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyBbEfLivMutCUyJcZw4PRtgDpusrK3coVc';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+if (!GEMINI_API_KEY) {
+  console.error('VITE_GEMINI_API_KEY is not configured');
+}
 const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 // Full prompt document content
@@ -689,7 +692,7 @@ const VideoScriptGenerator: React.FC = () => {
 
   // AI Model selection state
   const [selectedModel, setSelectedModel] = useState<AIModel>(() => {
-    return (localStorage.getItem('scriptGeneratorModel') as AIModel) || 'gemini';
+    return (localStorage.getItem('scriptGeneratorModel') as AIModel) || 'gemini-pro';
   });
 
   // Update supplement prompt when images change
@@ -832,7 +835,9 @@ const VideoScriptGenerator: React.FC = () => {
         // Use Claude API
         text = await generateWithClaude(images, supplementPrompt);
       } else {
-        // Use Gemini API
+        // Use Gemini API (Flash or Pro)
+        const geminiModel = selectedModel === 'gemini-flash' ? 'gemini-2.5-flash' : 'gemini-2.5-pro';
+
         const imageParts = await Promise.all(
           images.map(async (img) => ({
             inline_data: {
@@ -843,7 +848,7 @@ const VideoScriptGenerator: React.FC = () => {
         );
 
         const generateResponse = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1022,16 +1027,29 @@ const VideoScriptGenerator: React.FC = () => {
           <div className="flex space-x-4">
             <button
               onClick={() => {
-                setSelectedModel('gemini');
-                localStorage.setItem('scriptGeneratorModel', 'gemini');
+                setSelectedModel('gemini-flash');
+                localStorage.setItem('scriptGeneratorModel', 'gemini-flash');
               }}
               className={`px-6 py-3 rounded-md font-medium transition-colors ${
-                selectedModel === 'gemini'
+                selectedModel === 'gemini-flash'
                   ? 'bg-blue-500 text-white'
                   : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
               }`}
             >
               Gemini 2.5 Flash
+            </button>
+            <button
+              onClick={() => {
+                setSelectedModel('gemini-pro');
+                localStorage.setItem('scriptGeneratorModel', 'gemini-pro');
+              }}
+              className={`px-6 py-3 rounded-md font-medium transition-colors ${
+                selectedModel === 'gemini-pro'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Gemini 2.5 Pro
             </button>
             <button
               onClick={() => {
@@ -1048,7 +1066,7 @@ const VideoScriptGenerator: React.FC = () => {
             </button>
           </div>
           <p className="text-sm text-gray-500 mt-2">
-            当前模型：{selectedModel === 'gemini' ? 'Gemini 2.5 Flash' : 'Claude Sonnet 4.5'}
+            当前模型：{selectedModel === 'gemini-flash' ? 'Gemini 2.5 Flash' : selectedModel === 'gemini-pro' ? 'Gemini 2.5 Pro' : 'Claude Sonnet 4.5'}
           </p>
         </div>
 

@@ -24,10 +24,13 @@ interface ImagePrompt {
   downLink?: string;  // ID of the image linked downward (this as head frame)
 }
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || 'AIzaSyBbEfLivMutCUyJcZw4PRtgDpusrK3coVc';
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+if (!GEMINI_API_KEY) {
+  console.error('VITE_GEMINI_API_KEY is not configured');
+}
 const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
-type AIModel = 'gemini' | 'claude';
+type AIModel = 'gemini-flash' | 'gemini-pro' | 'claude';
 
 // System prompt from the document
 const SYSTEM_PROMPT = `# 身份和使命
@@ -154,8 +157,8 @@ const VideoPromptGenerator: React.FC = () => {
 
   // AI Model selection state
   const [selectedModel, setSelectedModel] = useState<AIModel>(() => {
-    // Load from localStorage or default to gemini
-    return (localStorage.getItem('aiModel') as AIModel) || 'gemini';
+    // Load from localStorage or default to gemini-pro
+    return (localStorage.getItem('aiModel') as AIModel) || 'gemini-pro';
   });
 
   // Hailuo video generation states
@@ -430,8 +433,10 @@ const VideoPromptGenerator: React.FC = () => {
         }
       };
 
+      const geminiModel = selectedModel === 'gemini-flash' ? 'gemini-2.5-flash' : 'gemini-2.5-pro';
+
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`,
         {
           method: 'POST',
           headers: {
@@ -520,8 +525,10 @@ const VideoPromptGenerator: React.FC = () => {
         }
       };
 
+      const geminiModel = selectedModel === 'gemini-flash' ? 'gemini-2.5-flash' : 'gemini-2.5-pro';
+
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`,
         {
           method: 'POST',
           headers: {
@@ -1986,15 +1993,29 @@ const VideoPromptGenerator: React.FC = () => {
                 <input
                   type="radio"
                   name="aiModel"
-                  value="gemini"
-                  checked={selectedModel === 'gemini'}
+                  value="gemini-flash"
+                  checked={selectedModel === 'gemini-flash'}
                   onChange={(e) => {
                     setSelectedModel(e.target.value as AIModel);
                     localStorage.setItem('aiModel', e.target.value);
                   }}
                   className="mr-1.5 w-4 h-4 text-blue-600"
                 />
-                <span className="text-sm text-gray-700">Gemini</span>
+                <span className="text-sm text-gray-700">Gemini Flash</span>
+              </label>
+              <label className="flex items-center cursor-pointer ml-3">
+                <input
+                  type="radio"
+                  name="aiModel"
+                  value="gemini-pro"
+                  checked={selectedModel === 'gemini-pro'}
+                  onChange={(e) => {
+                    setSelectedModel(e.target.value as AIModel);
+                    localStorage.setItem('aiModel', e.target.value);
+                  }}
+                  className="mr-1.5 w-4 h-4 text-blue-600"
+                />
+                <span className="text-sm text-gray-700">Gemini Pro</span>
               </label>
               <label className="flex items-center cursor-pointer ml-3">
                 <input
@@ -2511,56 +2532,38 @@ const VideoPromptGenerator: React.FC = () => {
                         <label className="block text-xs font-medium text-gray-700">
                           生成的提示词
                         </label>
-                        {image.generatedPrompt && (
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => copyToClipboard(image.generatedPrompt, image.id)}
-                              className="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700"
-                            >
-                              {copiedId === image.id ? (
-                                <>
-                                  <Check className="w-3 h-3" />
-                                  已复制
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3 h-3" />
-                                  复制
-                                </>
-                              )}
-                            </button>
-                            <button
-                              onClick={() => toggleEditMode(image.id)}
-                              className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700"
-                            >
-                              {editingPrompts.has(image.id) ? (
-                                <>
-                                  <Save className="w-3 h-3" />
-                                  完成
-                                </>
-                              ) : (
-                                <>
-                                  <Edit3 className="w-3 h-3" />
-                                  编辑
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => copyToClipboard(image.generatedPrompt, image.id)}
+                            disabled={!image.generatedPrompt}
+                            className={`flex items-center gap-1 text-xs ${
+                              !image.generatedPrompt
+                                ? 'text-gray-400 cursor-not-allowed'
+                                : 'text-blue-500 hover:text-blue-700'
+                            }`}
+                          >
+                            {copiedId === image.id ? (
+                              <>
+                                <Check className="w-3 h-3" />
+                                已复制
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                复制
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                       <textarea
                         value={image.generatedPrompt}
                         onChange={(e) => updateGeneratedPrompt(image.id, e.target.value)}
-                        onClick={() => handleTextareaClick(image.generatedPrompt, image.id)}
-                        readOnly={!editingPrompts.has(image.id)}
                         placeholder={image.error || "等待生成..."}
                         className={`w-full px-2 py-1 text-sm border rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none ${
-                          image.error ? 'border-red-300 text-red-500' :
-                          editingPrompts.has(image.id) ? 'border-blue-400 bg-white' :
-                          'border-gray-300 bg-gray-50 cursor-pointer hover:bg-gray-100'
+                          image.error ? 'border-red-300 text-red-500' : 'border-gray-300 bg-white'
                         }`}
                         rows={7}
-                        title={!editingPrompts.has(image.id) ? "点击复制内容" : ""}
                       />
                     </div>
 
