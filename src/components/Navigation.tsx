@@ -33,6 +33,7 @@ const Navigation: React.FC = () => {
   const promptItems = [
     { path: '/video-script-generator', label: '生成视频脚本', icon: FileText },
     { path: '/video-prompt', label: '图生视频prompt', icon: Video },
+    { path: '/video-clip-prompt', label: '视频片段生成prompt', icon: Video },
   ];
 
   const libraryItems = [

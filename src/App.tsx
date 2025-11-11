@@ -16,6 +16,7 @@ import LogsPage from './pages/LogsPage'
 import VideoPromptGenerator from './components/VideoPromptGenerator'
 import VideoScriptGenerator from './components/VideoScriptGenerator'
 import CharacterImage from './components/CharacterImage'
+import VideoClipPromptGenerator from './components/VideoClipPromptGenerator'
 
 function App() {
   const { isAuthenticated, isLoading, initializeAuth, user } = useAuthStore()
@@ -62,6 +63,7 @@ function App() {
             <Route path="/projects" element={<ProjectsManager />} />
             <Route path="/video-script-generator" element={<VideoScriptGenerator />} />
             <Route path="/video-prompt" element={<VideoPromptGenerator />} />
+            <Route path="/video-clip-prompt" element={<VideoClipPromptGenerator />} />
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/settings" element={<Settings />} />
             {user?.role === 'admin' && (
