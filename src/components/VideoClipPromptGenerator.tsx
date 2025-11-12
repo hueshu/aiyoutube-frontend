@@ -45,7 +45,7 @@ const VideoClipPromptGenerator: React.FC = () => {
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
 
   // Gemini 提供商选择状态
-  const [geminiProvider, setGeminiProvider] = useState<'official' | 'yunwu'>('yunwu');
+  const [geminiProvider, setGeminiProvider] = useState<'official' | 'yunwu'>('official');
 
   // 脚本相关状态
   const [scripts, setScripts] = useState<Script[]>([]);
@@ -504,16 +504,6 @@ const VideoClipPromptGenerator: React.FC = () => {
           <h3 className="text-sm font-semibold mb-3 text-gray-700">选择 Gemini 接口</h3>
           <div className="flex gap-3">
             <button
-              onClick={() => setGeminiProvider('yunwu')}
-              className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
-                geminiProvider === 'yunwu'
-                  ? 'bg-blue-500 text-white shadow-md'
-                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
-              }`}
-            >
-              Gemini（云雾） - 默认
-            </button>
-            <button
               onClick={() => setGeminiProvider('official')}
               className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
                 geminiProvider === 'official'
@@ -521,7 +511,17 @@ const VideoClipPromptGenerator: React.FC = () => {
                   : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
               }`}
             >
-              Gemini（官方）
+              Gemini（官方） - 默认
+            </button>
+            <button
+              onClick={() => setGeminiProvider('yunwu')}
+              className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
+                geminiProvider === 'yunwu'
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
+              }`}
+            >
+              Gemini（云雾）
             </button>
           </div>
         </div>
