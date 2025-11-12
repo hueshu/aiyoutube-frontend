@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Download, Copy, Loader, Video, Trash2, CheckCircle, XCircle, BookOpen } from 'lucide-react';
+import { Upload, Download, Copy, Loader, Video, Trash2, CheckCircle, XCircle, BookOpen, AlertCircle } from 'lucide-react';
 import { API_URL } from '../config/api';
 
 interface VideoClip {
@@ -9,6 +9,8 @@ interface VideoClip {
   characterFeature?: string;
   sceneId: string;
   status: 'pending' | 'processing' | 'success' | 'error';
+  endFrameStatus?: 'extracting' | 'success' | 'failed'; // 尾帧提取状态
+  endFramePreview?: string; // 尾帧缩略图 URL
   prompt?: {
     scene_id: string;
     duration: string;
@@ -18,6 +20,7 @@ interface VideoClip {
     };
   };
   error?: string;
+  errorDetails?: any; // 完整的错误响应数据
 }
 
 interface Script {
@@ -39,6 +42,7 @@ const VideoClipPromptGenerator: React.FC = () => {
   const [characterFeatures, setCharacterFeatures] = useState<string[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
 
   // 脚本相关状态
   const [scripts, setScripts] = useState<Script[]>([]);
@@ -213,6 +217,76 @@ const VideoClipPromptGenerator: React.FC = () => {
     setVideoClips(prev => prev.filter(clip => clip.id !== id));
   };
 
+  // 从视频文件提取倒数第二帧（改进版，带超时和资源清理）
+  const extractLastFrame = async (videoFile: File, timeout = 10000): Promise<{ blob: Blob; previewUrl: string }> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.src = URL.createObjectURL(videoFile);
+      video.muted = true;
+      video.preload = 'metadata';
+
+      let timeoutId: number;
+      let resolved = false;
+
+      const cleanup = () => {
+        if (!resolved) {
+          resolved = true;
+          URL.revokeObjectURL(video.src);
+          clearTimeout(timeoutId);
+          video.remove();
+        }
+      };
+
+      // 超时处理
+      timeoutId = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('提取尾帧超时'));
+      }, timeout);
+
+      video.addEventListener('loadedmetadata', () => {
+        // 跳到倒数第二帧（约 1/30 秒前，避免黑帧）
+        const targetTime = Math.max(0, video.duration - 1/30);
+        video.currentTime = targetTime;
+      });
+
+      video.addEventListener('seeked', () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+
+          if (!ctx) {
+            cleanup();
+            reject(new Error('无法创建 Canvas 上下文'));
+            return;
+          }
+
+          ctx.drawImage(video, 0, 0);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              // 创建预览 URL
+              const previewUrl = URL.createObjectURL(blob);
+              cleanup();
+              resolve({ blob, previewUrl });
+            } else {
+              cleanup();
+              reject(new Error('无法生成图片'));
+            }
+          }, 'image/jpeg', 0.9);
+        } catch (error) {
+          cleanup();
+          reject(error);
+        }
+      });
+
+      video.addEventListener('error', () => {
+        cleanup();
+        reject(new Error('视频加载失败'));
+      });
+    });
+  };
+
   // 生成 Prompt
   const generatePrompts = async () => {
     if (videoClips.length === 0) {
@@ -229,10 +303,74 @@ const VideoClipPromptGenerator: React.FC = () => {
       const token = localStorage.getItem('token');
       const formData = new FormData();
 
-      // 添加视频文件
-      videoClips.forEach((clip, index) => {
-        formData.append(`video_${index}`, clip.file);
-      });
+      // 提取并添加视频文件和尾帧
+      console.log('[VideoClipPrompt] Extracting end frames for', videoClips.length, 'videos');
+
+      // 统计提取结果
+      const extractionResults: Array<{
+        success: boolean;
+        error?: string;
+        previewUrl?: string;
+      }> = [];
+
+      // 先更新所有视频的状态为"提取中"
+      setVideoClips(prev => prev.map(clip => ({
+        ...clip,
+        endFrameStatus: 'extracting' as const
+      })));
+
+      for (let i = 0; i < videoClips.length; i++) {
+        const clip = videoClips[i];
+
+        // 添加视频文件
+        formData.append(`video_${i}`, clip.file);
+
+        // 提取并添加尾帧
+        try {
+          const { blob, previewUrl } = await extractLastFrame(clip.file);
+          // 使用视频文件名 + "_尾帧.jpg" 作为尾帧文件名
+          const videoFileName = clip.file.name.replace(/\.[^/.]+$/, ''); // 去掉扩展名
+          const endFrameFileName = `${videoFileName}_尾帧.jpg`;
+          formData.append(`endFrame_${i}`, blob, endFrameFileName);
+          console.log(`[VideoClipPrompt] ✓ Extracted end frame ${i + 1}/${videoClips.length}: ${endFrameFileName}`);
+          extractionResults.push({ success: true, previewUrl });
+
+          // 更新该视频的尾帧状态
+          setVideoClips(prev => prev.map((c, idx) =>
+            idx === i ? { ...c, endFrameStatus: 'success' as const, endFramePreview: previewUrl } : c
+          ));
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : '未知错误';
+          console.error(`[VideoClipPrompt] ✗ Failed to extract end frame for clip ${i}:`, error);
+          extractionResults.push({ success: false, error: errorMsg });
+
+          // 更新该视频的尾帧状态为失败
+          setVideoClips(prev => prev.map((c, idx) =>
+            idx === i ? { ...c, endFrameStatus: 'failed' as const } : c
+          ));
+        }
+      }
+
+      // 统计结果
+      const successCount = extractionResults.filter(r => r.success).length;
+      const failCount = extractionResults.filter(r => !r.success).length;
+
+      console.log(`[VideoClipPrompt] Extraction summary: ${successCount} success, ${failCount} failed`);
+
+      // 如果有失败的，询问用户
+      if (failCount > 0) {
+        const proceed = confirm(
+          `有 ${failCount} 个视频的尾帧提取失败，这些视频将不包含尾帧信息。\n\n` +
+          `成功: ${successCount} / ${videoClips.length}\n\n` +
+          `是否继续提交？`
+        );
+
+        if (!proceed) {
+          setIsGenerating(false);
+          setVideoClips(prev => prev.map(clip => ({ ...clip, status: 'pending' })));
+          return;
+        }
+      }
 
       // 添加角色特征（JSON 格式）
       if (characterFeatures.length > 0) {
@@ -269,7 +407,8 @@ const VideoClipPromptGenerator: React.FC = () => {
             return {
               ...clip,
               status: 'error',
-              error: result.error || '生成失败'
+              error: result.error || '生成失败',
+              errorDetails: result // 保存完整的错误响应
             };
           }
         }));
@@ -532,6 +671,31 @@ const VideoClipPromptGenerator: React.FC = () => {
                         controls
                       />
                       <p className="text-xs text-gray-500 mt-1">{clip.file.name}</p>
+
+                      {/* 尾帧状态和预览 */}
+                      <div className="mt-2">
+                        {clip.endFrameStatus === 'extracting' && (
+                          <div className="text-xs text-blue-500 flex items-center gap-1">
+                            <Loader className="w-3 h-3 animate-spin" />
+                            提取尾帧中...
+                          </div>
+                        )}
+                        {clip.endFrameStatus === 'success' && clip.endFramePreview && (
+                          <div>
+                            <p className="text-xs text-green-600 mb-1">✓ 尾帧</p>
+                            <img
+                              src={clip.endFramePreview}
+                              alt="End frame"
+                              className="w-40 h-24 object-cover rounded border border-green-300"
+                            />
+                          </div>
+                        )}
+                        {clip.endFrameStatus === 'failed' && (
+                          <div className="text-xs text-red-500">
+                            ✗ 尾帧提取失败
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* 信息和结果 */}
@@ -551,10 +715,28 @@ const VideoClipPromptGenerator: React.FC = () => {
                           </span>
                         )}
                         {clip.status === 'error' && (
-                          <span className="text-red-500 flex items-center gap-1">
-                            <XCircle className="w-4 h-4" />
-                            失败: {clip.error}
-                          </span>
+                          <div className="text-red-500">
+                            <div className="flex items-center gap-1">
+                              <XCircle className="w-4 h-4" />
+                              <span>失败: {clip.error}</span>
+                              {clip.errorDetails && (
+                                <button
+                                  onClick={() => setExpandedErrorId(expandedErrorId === clip.id ? null : clip.id)}
+                                  className="ml-2 text-orange-500 hover:text-orange-600"
+                                  title="查看详细错误信息"
+                                >
+                                  <AlertCircle className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                            {expandedErrorId === clip.id && clip.errorDetails && (
+                              <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs">
+                                <pre className="whitespace-pre-wrap overflow-auto max-h-60">
+                                  {JSON.stringify(clip.errorDetails, null, 2)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </div>
 
