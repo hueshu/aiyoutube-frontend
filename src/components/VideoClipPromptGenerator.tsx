@@ -44,6 +44,9 @@ const VideoClipPromptGenerator: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [expandedErrorId, setExpandedErrorId] = useState<string | null>(null);
 
+  // Gemini 提供商选择状态
+  const [geminiProvider, setGeminiProvider] = useState<'official' | 'yunwu'>('yunwu');
+
   // 脚本相关状态
   const [scripts, setScripts] = useState<Script[]>([]);
   const [loadingScripts, setLoadingScripts] = useState(false);
@@ -377,6 +380,9 @@ const VideoClipPromptGenerator: React.FC = () => {
         formData.append('characterFeatures', JSON.stringify(characterFeatures));
       }
 
+      // 添加 provider 参数
+      formData.append('provider', geminiProvider);
+
       const response = await fetch(`${API_URL}/video-clip-prompt/generate`, {
         method: 'POST',
         headers: {
@@ -492,6 +498,33 @@ const VideoClipPromptGenerator: React.FC = () => {
           <Video className="w-8 h-8 text-blue-500" />
           视频片段生成 Prompt
         </h1>
+
+        {/* Gemini 接口选择 */}
+        <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <h3 className="text-sm font-semibold mb-3 text-gray-700">选择 Gemini 接口</h3>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setGeminiProvider('yunwu')}
+              className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
+                geminiProvider === 'yunwu'
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
+              }`}
+            >
+              Gemini（云雾） - 默认
+            </button>
+            <button
+              onClick={() => setGeminiProvider('official')}
+              className={`flex-1 px-4 py-2 rounded-lg font-medium transition-colors ${
+                geminiProvider === 'official'
+                  ? 'bg-blue-500 text-white shadow-md'
+                  : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-300'
+              }`}
+            >
+              Gemini（官方）
+            </button>
+          </div>
+        </div>
 
         {/* 上传区域 */}
         <div className="mb-6">
