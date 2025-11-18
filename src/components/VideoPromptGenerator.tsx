@@ -1,13 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown, Users, RefreshCw, Link, Unlink, Video, Clock } from 'lucide-react';
+import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown, Users, RefreshCw, Link, Unlink, Video, Clock, Clipboard } from 'lucide-react';
 import { API_URL } from '../config/api';
 import JSZip from 'jszip';
 import {
   uploadImage,
-  submitBatchTasks,
-  regenerateTask,
-  pollTasksStatus
+  submitBatchTasks as submitBatchTasksHailuo,
+  regenerateTask as regenerateTaskHailuo,
+  pollTasksStatus as pollTasksStatusHailuo
 } from '../services/hailuoTasksService';
+import {
+  submitBatchTasks as submitBatchTasksJiMeng,
+  regenerateTask as regenerateTaskJiMeng,
+  pollTasksStatus as pollTasksStatusJiMeng
+} from '../services/jimengTasksService';
+import {
+  submitBatchTasks as submitBatchTasksVeo,
+  pollTasksStatus as pollTasksStatusVeo,
+  regenerateTask as regenerateTaskVeo
+} from '../services/veoTasksService';
+import {
+  submitBatchTasks as submitBatchTasksSora,
+  pollTasksStatus as pollTasksStatusSora,
+  regenerateTask as regenerateTaskSora
+} from '../services/soraTasksService';
 
 interface ImagePrompt {
   id: string;
@@ -31,6 +46,8 @@ if (!GEMINI_API_KEY) {
 const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 
 type AIModel = 'gemini-flash' | 'gemini-pro' | 'claude';
+type VideoModel = 'hailuo' | 'jimeng-official' | 'jimeng-yunwu' | 'veo-3.1-fast' | 'sora-2-hd';
+type AspectRatio = '16x9' | '9x16';
 
 // System prompt from the document
 const SYSTEM_PROMPT = `# 身份和使命
@@ -155,14 +172,25 @@ const VideoPromptGenerator: React.FC = () => {
   const [detectedCharacters, setDetectedCharacters] = useState<string[]>([]);
   const [hasImportedFromScript, setHasImportedFromScript] = useState(false);
 
-  // AI Model selection state
+  // AI Model selection state (for prompt generation)
   const [selectedModel, setSelectedModel] = useState<AIModel>(() => {
     // Load from localStorage or default to gemini-pro
     return (localStorage.getItem('aiModel') as AIModel) || 'gemini-pro';
   });
 
-  // Hailuo video generation states
-  const [hailuoTasks, setHailuoTasks] = useState<Map<string, string[]>>(new Map()); // imageId -> taskId[] mapping (support multiple versions)
+  // Video Model selection state (for video generation)
+  const [selectedVideoModel, setSelectedVideoModel] = useState<VideoModel>(() => {
+    // Load from localStorage or default to jimeng-official
+    return (localStorage.getItem('videoModel') as VideoModel) || 'jimeng-official';
+  });
+
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<AspectRatio>(() => {
+    // Load from localStorage or default to 9x16
+    return (localStorage.getItem('aspectRatio') as AspectRatio) || '9x16';
+  });
+
+  // Video generation states - unified for both Hailuo and JiMeng
+  const [videoTasks, setVideoTasks] = useState<Map<string, string[]>>(new Map()); // imageId -> taskId[] mapping (support multiple versions)
   const [taskStatuses, setTaskStatuses] = useState<Map<string, any>>(new Map()); // taskId -> task status
   const [isSubmittingTasks, setIsSubmittingTasks] = useState(false);
   const [pollingInterval, setPollingInterval] = useState<ReturnType<typeof setInterval> | null>(null);
@@ -835,6 +863,63 @@ const VideoPromptGenerator: React.FC = () => {
     }
   };
 
+  // Paste prompts from clipboard
+  const handlePastePrompts = async () => {
+    try {
+      // Read from clipboard
+      const clipboardText = await navigator.clipboard.readText();
+
+      // Parse JSON
+      const parsedData = JSON.parse(clipboardText);
+
+      // Validate format
+      if (!Array.isArray(parsedData)) {
+        alert('JSON格式错误：应该是数组格式');
+        return;
+      }
+
+      // Check if array is empty
+      if (parsedData.length === 0) {
+        alert('JSON数据为空，无法导入');
+        return;
+      }
+
+      // Check if count matches, but allow import with warning
+      const minCount = Math.min(parsedData.length, images.length);
+      if (parsedData.length !== images.length) {
+        alert(`数量不匹配：JSON有${parsedData.length}条，图片有${images.length}张。将导入前${minCount}条数据`);
+      }
+
+      // Import data (with boundary check)
+      setImages(prev => prev.map((img, index) => {
+        const sceneData = parsedData[index];
+
+        // If no corresponding JSON data, keep original
+        if (!sceneData?.prompts) {
+          return img;
+        }
+
+        return {
+          ...img,
+          generatedPrompt: sceneData.prompts.chinese || img.generatedPrompt,
+          translatedPrompt: sceneData.prompts.english || img.translatedPrompt
+        };
+      }));
+
+      alert(minCount === images.length
+        ? '成功导入Prompt数据'
+        : `成功导入${minCount}条Prompt数据`);
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        alert('JSON格式错误：无法解析剪贴板内容');
+      } else if (error instanceof Error && error.message.includes('clipboard')) {
+        alert('无法读取剪贴板，请检查浏览器权限');
+      } else {
+        alert('导入失败：' + (error instanceof Error ? error.message : '未知错误'));
+      }
+    }
+  };
+
   // Link image downward (this image as head frame, target as tail frame)
   const linkImageDown = (imageId: string) => {
     const currentIndex = images.findIndex(img => img.id === imageId);
@@ -1201,6 +1286,10 @@ const VideoPromptGenerator: React.FC = () => {
    * Handle batch video generation - Step 1: Show confirmation modal
    */
   const handleBatchGenerateVideos = async () => {
+    console.log('[DEBUG] handleBatchGenerateVideos called!');
+    console.log('[DEBUG] Images count:', images.length);
+    console.log('[DEBUG] Images with prompts:', images.filter(img => img.generatedPrompt).length);
+
     if (images.length === 0) {
       alert('请先上传图片');
       return;
@@ -1265,37 +1354,70 @@ const VideoPromptGenerator: React.FC = () => {
       }
 
       // Step 2: Build tasks array
-      const tasks = [];
+      const isSora = selectedVideoModel === 'sora-2-hd';
+      const tasks: any[] = [];
 
       for (const img of images) {
-        // Skip tail frames (they're processed with head frames)
-        if (img.upLink && !img.downLink) continue;
+        // For Sora: Process all images individually (no head-tail pairing)
+        // For others: Skip tail frames (they're processed with head frames)
+        if (!isSora && img.upLink && !img.downLink) continue;
 
         const uploadedImg = uploadedImages.find(u => u.id === img.id);
         if (!uploadedImg) continue;
 
-        const isPaired = !!img.downLink;
-        const tailImage = isPaired ? images.find(i => i.id === img.downLink) : null;
-        const uploadedTailImg = isPaired && tailImage ? uploadedImages.find(u => u.id === tailImage.id) : null;
+        // Sora doesn't support head-tail pairing
+        if (isSora) {
+          tasks.push({
+            imageUrl: uploadedImg.imageUrl,
+            promptCn: img.generatedPrompt,
+            promptEn: img.translatedPrompt
+          });
+        } else {
+          const isPaired = !!img.downLink;
+          const tailImage = isPaired ? images.find(i => i.id === img.downLink) : null;
+          const uploadedTailImg = isPaired && tailImage ? uploadedImages.find(u => u.id === tailImage.id) : null;
 
-        const imageUrls = isPaired && uploadedTailImg
-          ? [uploadedImg.imageUrl, uploadedTailImg.imageUrl]
-          : [uploadedImg.imageUrl];
+          const imageUrls = isPaired && uploadedTailImg
+            ? [uploadedImg.imageUrl, uploadedTailImg.imageUrl]
+            : [uploadedImg.imageUrl];
 
-        tasks.push({
-          imageUrls,
-          promptCn: img.generatedPrompt,
-          promptEn: img.translatedPrompt,
-          imageCount: imageUrls.length
-        });
+          tasks.push({
+            imageUrls,
+            promptCn: img.generatedPrompt,
+            promptEn: img.translatedPrompt,
+            imageCount: imageUrls.length
+          });
+        }
       }
 
-      // Step 3: Submit tasks
-      const { taskIds } = await submitBatchTasks(tasks);
+      // Step 3: Submit tasks using selected video model
+      // Determine which service to use and provider
+      const isVeo = selectedVideoModel === 'veo-3.1-fast';
+      const isJiMeng = selectedVideoModel === 'jimeng-official' || selectedVideoModel === 'jimeng-yunwu';
+
+      console.log('[DEBUG] Video model selection:', {
+        selectedVideoModel,
+        isVeo,
+        isSora,
+        isJiMeng,
+        selectedAspectRatio,
+        tasksCount: tasks.length
+      });
+
+      // Call appropriate service
+      const { taskIds } = isVeo
+        ? await submitBatchTasksVeo(tasks, selectedAspectRatio)
+        : isSora
+        ? await submitBatchTasksSora(tasks as any, selectedAspectRatio)
+        : isJiMeng
+        ? await submitBatchTasksJiMeng(tasks, selectedVideoModel === 'jimeng-yunwu' ? 'yunwu' : 'official')
+        : await submitBatchTasksHailuo(tasks);
+
+      console.log('[DEBUG] Submission result:', { taskIds });
 
       // Map image IDs to task IDs
       let taskIndex = 0;
-      const newMapping = new Map(hailuoTasks);
+      const newMapping = new Map(videoTasks);
       for (const img of images) {
         if (img.upLink && !img.downLink) continue; // Skip tail frames
         if (taskIndex < taskIds.length) {
@@ -1304,7 +1426,7 @@ const VideoPromptGenerator: React.FC = () => {
           taskIndex++;
         }
       }
-      setHailuoTasks(newMapping);
+      setVideoTasks(newMapping);
 
       // Step 4: Start polling all tasks
       startPollingTasks();
@@ -1324,7 +1446,7 @@ const VideoPromptGenerator: React.FC = () => {
 
   /**
    * Start polling tasks status
-   * Always polls all unfinished tasks from hailuoTasks Map
+   * Always polls all unfinished tasks from videoTasks Map
    */
   const startPollingTasks = () => {
     // Don't clear existing interval - let it continue polling all tasks
@@ -1335,14 +1457,24 @@ const VideoPromptGenerator: React.FC = () => {
 
     const pollTasks = async () => {
       try {
-        // Get fresh reference to hailuoTasks by using state updater function
-        setHailuoTasks(currentTasks => {
-          // Get all taskIds from current hailuoTasks Map
+        // Get fresh reference to videoTasks by using state updater function
+        setVideoTasks(currentTasks => {
+          // Get all taskIds from current videoTasks Map
           const allTaskIds = Array.from(currentTasks.values()).flat();
 
           if (allTaskIds.length > 0) {
-            // Poll all tasks (async, but we don't await here to avoid blocking state update)
-            pollTasksStatus(allTaskIds).then(tasks => {
+            // Poll all tasks using selected video model (async, but we don't await here to avoid blocking state update)
+            const isVeo = selectedVideoModel === 'veo-3.1-fast';
+            const isSora = selectedVideoModel === 'sora-2-hd';
+            const isJiMeng = selectedVideoModel === 'jimeng-official' || selectedVideoModel === 'jimeng-yunwu';
+            const pollFn = isVeo
+              ? pollTasksStatusVeo
+              : isSora
+              ? pollTasksStatusSora
+              : isJiMeng
+              ? pollTasksStatusJiMeng
+              : pollTasksStatusHailuo;
+            pollFn(allTaskIds).then(tasks => {
               setTaskStatuses(prevStatuses => {
                 const newStatuses = new Map(prevStatuses);
                 tasks.forEach(task => {
@@ -1429,18 +1561,55 @@ const VideoPromptGenerator: React.FC = () => {
         ? [uploadedImg.imageUrl, uploadedTailImg.imageUrl]
         : [uploadedImg.imageUrl];
 
-      const { taskId } = await regenerateTask({
-        imageUrls,
-        promptCn: img.generatedPrompt,
-        promptEn: img.translatedPrompt,
-        imageCount: imageUrls.length
-      });
+      const isJiMeng = selectedVideoModel === 'jimeng-official' || selectedVideoModel === 'jimeng-yunwu';
+      const isVeo = selectedVideoModel === 'veo-3.1-fast';
+      const isSora = selectedVideoModel === 'sora-2-hd';
+
+      let taskId: string;
+
+      if (isSora) {
+        // Sora only supports single image
+        const result = await regenerateTaskSora({
+          imageUrl: uploadedImg.imageUrl,
+          promptCn: img.generatedPrompt,
+          promptEn: img.translatedPrompt,
+          aspectRatio: selectedAspectRatio
+        });
+        taskId = result.taskId;
+      } else if (isVeo) {
+        const result = await regenerateTaskVeo({
+          imageUrls,
+          promptCn: img.generatedPrompt,
+          promptEn: img.translatedPrompt,
+          imageCount: imageUrls.length,
+          aspectRatio: selectedAspectRatio
+        });
+        taskId = result.taskId;
+      } else if (isJiMeng) {
+        const result = await regenerateTaskJiMeng({
+          imageUrls,
+          promptCn: img.generatedPrompt,
+          promptEn: img.translatedPrompt,
+          imageCount: imageUrls.length,
+          provider: selectedVideoModel === 'jimeng-yunwu' ? 'yunwu' : 'official'
+        });
+        taskId = result.taskId;
+      } else {
+        // Hailuo
+        const result = await regenerateTaskHailuo({
+          imageUrls,
+          promptCn: img.generatedPrompt,
+          promptEn: img.translatedPrompt,
+          imageCount: imageUrls.length
+        });
+        taskId = result.taskId;
+      }
 
       // Update mapping - add new taskId to existing array
-      const newMapping = new Map(hailuoTasks);
+      const newMapping = new Map(videoTasks);
       const existingTasks = newMapping.get(regenerateImageId) || [];
       newMapping.set(regenerateImageId, [...existingTasks, taskId]);
-      setHailuoTasks(newMapping);
+      setVideoTasks(newMapping);
 
       // Start polling all tasks (including this new one)
       startPollingTasks();
@@ -1462,7 +1631,7 @@ const VideoPromptGenerator: React.FC = () => {
   const handleBatchDownloadVideos = async () => {
     try {
       // Get all images with taskIds
-      const imagesWithTasks = Array.from(hailuoTasks.entries())
+      const imagesWithTasks = Array.from(videoTasks.entries())
         .filter(([imageId]) => images.find(i => i.id === imageId))
         .sort(([idA], [idB]) => {
           const indexA = images.findIndex(i => i.id === idA);
@@ -1490,7 +1659,7 @@ const VideoPromptGenerator: React.FC = () => {
 
         // Add all versions to download list
         for (let versionIndex = 0; versionIndex < completedTasks.length; versionIndex++) {
-          const { task } = completedTasks[versionIndex];
+          const { taskId, task } = completedTasks[versionIndex];
 
           const prompt = img.generatedPrompt || 'video';
           const cleanPrompt = prompt.substring(0, 50).replace(/[/\\:*?\"<>|]/g, '_');
@@ -1500,7 +1669,14 @@ const VideoPromptGenerator: React.FC = () => {
             ? `${imageIndex}-${versionIndex + 1}_${cleanPrompt}.mp4`
             : `${imageIndex}_${cleanPrompt}.mp4`;
 
-          videosToDownload.push({ filename, url: task.videoUrl });
+          // Use proxy URL for JiMeng videos (to avoid CORS issues)
+          let videoUrl = task.videoUrl;
+          const isJiMeng = selectedVideoModel === 'jimeng-official' || selectedVideoModel === 'jimeng-yunwu';
+          if (isJiMeng && task.videoUrl.includes('volces.com')) {
+            videoUrl = `${API_URL}/jimeng-tasks/download/${taskId}`;
+          }
+
+          videosToDownload.push({ filename, url: videoUrl });
         }
       }
 
@@ -1526,7 +1702,18 @@ const VideoPromptGenerator: React.FC = () => {
         setDownloadProgressMessage(`正在下载第 ${i + 1}/${videosToDownload.length} 个视频...`);
 
         try {
-          const response = await fetch(video.url);
+          // Add auth header for proxy requests
+          const fetchOptions: RequestInit = {};
+          if (video.url.includes('/jimeng-tasks/download/')) {
+            const token = localStorage.getItem('token');
+            if (token) {
+              fetchOptions.headers = {
+                'Authorization': `Bearer ${token}`
+              };
+            }
+          }
+
+          const response = await fetch(video.url, fetchOptions);
           if (!response.ok) throw new Error(`Failed to fetch ${video.filename}`);
 
           const blob = await response.blob();
@@ -1981,14 +2168,15 @@ const VideoPromptGenerator: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             图转视频 Prompt 生成器
           </h1>
-          <div className="flex items-center justify-between">
-            <p className="text-gray-600">
-              上传图片，使用 AI 模型生成适合图转视频的提示词
-            </p>
+          <p className="text-gray-600 mb-4">
+            上传图片，使用 AI 模型生成适合图转视频的提示词
+          </p>
 
-            {/* AI Model Selector */}
+          {/* Model Selectors */}
+          <div className="space-y-3">
+            {/* AI Model Selector (for prompt generation) */}
             <div className="flex items-center gap-2 bg-white rounded-lg shadow-sm px-4 py-2 border border-gray-200">
-              <span className="text-sm font-medium text-gray-700">模型:</span>
+              <span className="text-sm font-medium text-gray-700 min-w-[80px]">文案模型:</span>
               <label className="flex items-center cursor-pointer">
                 <input
                   type="radio"
@@ -2032,6 +2220,127 @@ const VideoPromptGenerator: React.FC = () => {
                 <span className="text-sm text-gray-700">Claude</span>
               </label>
             </div>
+
+            {/* Video Model Selector (for video generation) */}
+            <div className="flex items-center gap-2 bg-white rounded-lg shadow-sm px-4 py-2 border border-gray-200">
+              <span className="text-sm font-medium text-gray-700 min-w-[80px]">视频模型:</span>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="radio"
+                  name="videoModel"
+                  value="jimeng-official"
+                  checked={selectedVideoModel === 'jimeng-official'}
+                  onChange={(e) => {
+                    setSelectedVideoModel(e.target.value as VideoModel);
+                    localStorage.setItem('videoModel', e.target.value);
+                  }}
+                  className="mr-1.5 w-4 h-4 text-purple-600"
+                />
+                <span className="text-sm text-gray-700">即梦（官方）</span>
+              </label>
+              <label className="flex items-center cursor-pointer ml-3">
+                <input
+                  type="radio"
+                  name="videoModel"
+                  value="jimeng-yunwu"
+                  checked={selectedVideoModel === 'jimeng-yunwu'}
+                  onChange={(e) => {
+                    setSelectedVideoModel(e.target.value as VideoModel);
+                    localStorage.setItem('videoModel', e.target.value);
+                  }}
+                  className="mr-1.5 w-4 h-4 text-purple-600"
+                />
+                <span className="text-sm text-gray-700">即梦（云雾接口）</span>
+              </label>
+              <label className="flex items-center cursor-pointer ml-3">
+                <input
+                  type="radio"
+                  name="videoModel"
+                  value="hailuo"
+                  checked={selectedVideoModel === 'hailuo'}
+                  onChange={(e) => {
+                    setSelectedVideoModel(e.target.value as VideoModel);
+                    localStorage.setItem('videoModel', e.target.value);
+                  }}
+                  className="mr-1.5 w-4 h-4 text-purple-600"
+                />
+                <span className="text-sm text-gray-700">海螺</span>
+              </label>
+              <label className="flex items-center cursor-pointer ml-3">
+                <input
+                  type="radio"
+                  name="videoModel"
+                  value="veo-3.1-fast"
+                  checked={selectedVideoModel === 'veo-3.1-fast'}
+                  onChange={(e) => {
+                    setSelectedVideoModel(e.target.value as VideoModel);
+                    localStorage.setItem('videoModel', e.target.value);
+                    // When selecting Veo, force aspectRatio to 16x9
+                    if (e.target.value === 'veo-3.1-fast') {
+                      setSelectedAspectRatio('16x9');
+                      localStorage.setItem('aspectRatio', '16x9');
+                    }
+                  }}
+                  className="mr-1.5 w-4 h-4 text-purple-600"
+                />
+                <span className="text-sm text-gray-700">Veo 3.1 Fast</span>
+              </label>
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="radio"
+                  name="videoModel"
+                  value="sora-2-hd"
+                  checked={selectedVideoModel === 'sora-2-hd'}
+                  onChange={(e) => {
+                    setSelectedVideoModel(e.target.value as VideoModel);
+                    localStorage.setItem('videoModel', e.target.value);
+                  }}
+                  className="mr-1.5 w-4 h-4 text-purple-600"
+                />
+                <span className="text-sm text-gray-700">Sora 2 HD</span>
+              </label>
+            </div>
+
+            {/* Aspect Ratio Selector (Veo only shows 16x9, Sora shows both) */}
+            {selectedVideoModel === 'veo-3.1-fast' && (
+              <div className="flex items-center gap-2 bg-white rounded-lg shadow-sm px-4 py-2 border border-gray-200">
+                <span className="text-sm font-medium text-gray-700 min-w-[80px]">视频比例:</span>
+                <span className="text-sm text-gray-700">16x9 (横屏)</span>
+              </div>
+            )}
+            {selectedVideoModel === 'sora-2-hd' && (
+              <div className="flex items-center gap-2 bg-white rounded-lg shadow-sm px-4 py-2 border border-gray-200">
+                <span className="text-sm font-medium text-gray-700 min-w-[80px]">视频比例:</span>
+                <label className="flex items-center cursor-pointer">
+                  <input
+                    type="radio"
+                    name="aspectRatio"
+                    value="9x16"
+                    checked={selectedAspectRatio === '9x16'}
+                    onChange={(e) => {
+                      setSelectedAspectRatio(e.target.value as AspectRatio);
+                      localStorage.setItem('aspectRatio', e.target.value);
+                    }}
+                    className="mr-1.5 w-4 h-4 text-blue-600"
+                  />
+                  <span className="text-sm text-gray-700">9x16 (竖屏)</span>
+                </label>
+                <label className="flex items-center cursor-pointer ml-3">
+                  <input
+                    type="radio"
+                    name="aspectRatio"
+                    value="16x9"
+                    checked={selectedAspectRatio === '16x9'}
+                    onChange={(e) => {
+                      setSelectedAspectRatio(e.target.value as AspectRatio);
+                      localStorage.setItem('aspectRatio', e.target.value);
+                    }}
+                    className="mr-1.5 w-4 h-4 text-blue-600"
+                  />
+                  <span className="text-sm text-gray-700">16x9 (横屏)</span>
+                </label>
+              </div>
+            )}
           </div>
         </div>
 
@@ -2079,9 +2388,22 @@ const VideoPromptGenerator: React.FC = () => {
             {images.length > 0 && (
               <div className="flex gap-3">
                 <button
+                  onClick={handlePastePrompts}
+                  disabled={images.length === 0}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
+                    images.length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-orange-500 text-white hover:bg-orange-600'
+                  }`}
+                >
+                  <Clipboard className="w-4 h-4" />
+                  粘贴Prompt
+                </button>
+
+                <button
                   onClick={handleProcessAll}
                   disabled={isProcessingAll || images.length === 0}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                     isProcessingAll
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       : 'bg-green-500 text-white hover:bg-green-600'
@@ -2089,12 +2411,12 @@ const VideoPromptGenerator: React.FC = () => {
                 >
                   {isProcessingAll ? (
                     <>
-                      <Loader className="w-5 h-5 animate-spin" />
+                      <Loader className="w-4 h-4 animate-spin" />
                       处理中...
                     </>
                   ) : (
                     <>
-                      <FileText className="w-5 h-5" />
+                      <FileText className="w-4 h-4" />
                       {hasImportedFromScript ? '使用AI优化提示词' : '一键生成 Prompt'}
                     </>
                   )}
@@ -2103,65 +2425,65 @@ const VideoPromptGenerator: React.FC = () => {
                 <button
                   onClick={handleBatchTranslate}
                   disabled={images.filter(img => img.generatedPrompt && !img.translatedPrompt).length === 0}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                     images.filter(img => img.generatedPrompt && !img.translatedPrompt).length === 0
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       : 'bg-blue-500 text-white hover:bg-blue-600'
                   }`}
                 >
-                  <Languages className="w-5 h-5" />
+                  <Languages className="w-4 h-4" />
                   批量翻译
                 </button>
 
                 <button
                   onClick={() => handleDownloadAll(false)}
                   disabled={images.filter(img => img.generatedPrompt).length === 0}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                     images.filter(img => img.generatedPrompt).length === 0
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       : 'bg-purple-500 text-white hover:bg-purple-600'
                   }`}
                 >
-                  <Download className="w-5 h-5" />
+                  <Download className="w-4 h-4" />
                   下载中文版
                 </button>
 
                 <button
                   onClick={() => handleDownloadAll(true)}
                   disabled={images.filter(img => img.translatedPrompt).length === 0}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                     images.filter(img => img.translatedPrompt).length === 0
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       : 'bg-indigo-500 text-white hover:bg-indigo-600'
                   }`}
                 >
-                  <Download className="w-5 h-5" />
+                  <Download className="w-4 h-4" />
                   下载英文版
                 </button>
 
                 <button
                   onClick={handleBatchGenerateVideos}
                   disabled={isSubmittingTasks || images.length === 0 || images.filter(img => img.generatedPrompt).length === 0}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                     isSubmittingTasks || images.length === 0 || images.filter(img => img.generatedPrompt).length === 0
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       : 'bg-green-500 text-white hover:bg-green-600'
                   }`}
                 >
-                  <Video className="w-5 h-5" />
+                  <Video className="w-4 h-4" />
                   {isSubmittingTasks ? '提交中...' : '批量生成视频'}
                 </button>
 
                 <button
                   onClick={() => setShowBatchDownloadConfirm(true)}
                   disabled={Array.from(taskStatuses.values()).filter(t => t.status === 'completed').length === 0}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                     Array.from(taskStatuses.values()).filter(t => t.status === 'completed').length === 0
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       : 'bg-purple-600 text-white hover:bg-purple-700'
                   }`}
                 >
-                  <Download className="w-5 h-5" />
+                  <Download className="w-4 h-4" />
                   批量下载视频
                 </button>
               </div>
@@ -2402,18 +2724,19 @@ const VideoPromptGenerator: React.FC = () => {
                   </div>
                 )}
 
-                {/* Link buttons - vertical layout */}
-                <div className="flex flex-col justify-center gap-2">
-                  {/* Link Up button */}
-                  {(() => {
-                    const currentIndex = images.findIndex(img => img.id === image.id);
-                    const canLinkUp = currentIndex > 0;
-                    const hasUpLink = !!image.upLink;
+                {/* Link buttons - vertical layout (hide for Sora) */}
+                {selectedVideoModel !== 'sora-2-hd' && (
+                  <div className="flex flex-col justify-center gap-2">
+                    {/* Link Up button */}
+                    {(() => {
+                      const currentIndex = images.findIndex(img => img.id === image.id);
+                      const canLinkUp = currentIndex > 0;
+                      const hasUpLink = !!image.upLink;
 
-                    return (
-                      <button
-                        onClick={() => hasUpLink ? unlinkImageUp(image.id) : linkImageUp(image.id)}
-                        disabled={!canLinkUp && !hasUpLink}
+                      return (
+                        <button
+                          onClick={() => hasUpLink ? unlinkImageUp(image.id) : linkImageUp(image.id)}
+                          disabled={!canLinkUp && !hasUpLink}
                         className={`p-2 rounded ${
                           hasUpLink
                             ? 'bg-blue-500 text-white hover:bg-blue-600'
@@ -2451,7 +2774,8 @@ const VideoPromptGenerator: React.FC = () => {
                       </button>
                     );
                   })()}
-                </div>
+                  </div>
+                )}
 
                 {/* Content section - takes remaining space */}
                 <div className="flex-1 flex flex-col">
@@ -2649,7 +2973,7 @@ const VideoPromptGenerator: React.FC = () => {
                       </div>
                       <div className="max-h-[400px] overflow-y-auto space-y-2">
                         {(() => {
-                          const taskIds = hailuoTasks.get(image.id) || [];
+                          const taskIds = videoTasks.get(image.id) || [];
 
                           if (taskIds.length === 0) {
                             return (
