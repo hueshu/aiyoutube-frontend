@@ -226,96 +226,126 @@ const StoryboardWorkspace: React.FC = () => {
     try {
       // Parse CSV with support for multi-line quoted content
       const csvContent = script.csv_content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-      const lines = csvContent.split('\n');
       const frames: ScriptFrame[] = [];
       
-      // Check if first line is header
-      let currentIndex = 0;
-      if (lines.length > 0) {
-        const firstLine = lines[0].toLowerCase();
-        if (firstLine.includes('序号') || 
-            firstLine.includes('分镜') || 
-            firstLine.includes('scene') ||
-            firstLine.includes('描述') ||
-            firstLine.includes('prompt') ||
-            firstLine.includes('内容') ||
-            (lines[0].split(',')[0] && isNaN(parseInt(lines[0].split(',')[0].trim())))) {
-          currentIndex = 1;
+      // Robust CSV parser that handles quoted multi-line fields
+      const parseCSV = (text: string): string[][] => {
+        const rows: string[][] = [];
+        let currentRow: string[] = [];
+        let currentField = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < text.length; i++) {
+          const char = text[i];
+          const nextChar = text[i + 1];
+          
+          if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+              // Escaped quote ""
+              currentField += '"';
+              i++; // Skip next quote
+            } else {
+              // Toggle quote mode
+              inQuotes = !inQuotes;
+            }
+          } else if (char === ',' && !inQuotes) {
+            // End of field
+            currentRow.push(currentField);
+            currentField = '';
+          } else if (char === '\n' && !inQuotes) {
+            // End of row
+            currentRow.push(currentField);
+            if (currentRow.some(f => f.trim())) {
+              rows.push(currentRow);
+            }
+            currentRow = [];
+            currentField = '';
+          } else {
+            currentField += char;
+          }
+        }
+        
+        // Handle last field/row
+        if (currentField || currentRow.length > 0) {
+          currentRow.push(currentField);
+          if (currentRow.some(f => f.trim())) {
+            rows.push(currentRow);
+          }
+        }
+        
+        return rows;
+      };
+      
+      const rows = parseCSV(csvContent);
+      
+      console.log('Parsed CSV rows:', rows.length);
+      
+      // Detect header row and column structure
+      let dataStartIndex = 0;
+      let frameNumberCol = 0;
+      let promptCol = 1;
+      
+      if (rows.length > 0) {
+        const firstRow = rows[0];
+        const firstRowLower = firstRow.map(f => f.toLowerCase().trim());
+        
+        // Check if first row is a header
+        const isHeader = firstRowLower.some(field => 
+          field.includes('分镜数') || 
+          field.includes('序号') || 
+          field.includes('分镜') ||
+          field.includes('scene') ||
+          field.includes('描述') ||
+          field.includes('prompt') ||
+          field.includes('提示词')
+        );
+        
+        if (isHeader) {
+          dataStartIndex = 1;
+          
+          // Try to find the correct columns
+          firstRowLower.forEach((field, idx) => {
+            if (field.includes('分镜数') || field.includes('序号')) {
+              frameNumberCol = idx;
+            }
+            if (field.includes('分镜提示词') || field.includes('prompt') || field.includes('提示词')) {
+              promptCol = idx;
+            }
+          });
+          
+          console.log('Header detected. Frame col:', frameNumberCol, 'Prompt col:', promptCol);
         }
       }
       
-      // Process lines with support for quoted multi-line content
-      while (currentIndex < lines.length) {
-        const line = lines[currentIndex].trim();
-        if (!line) {
-          currentIndex++;
+      // Process data rows
+      for (let i = dataStartIndex; i < rows.length; i++) {
+        const row = rows[i];
+        
+        // Skip empty rows
+        if (row.length === 0 || !row.some(f => f.trim())) {
           continue;
         }
         
-        // Parse CSV line/lines properly handling quotes
-        let inQuotes = false;
-        let lineIdx = currentIndex;
-        let currentLine = lines[lineIdx];
+        // Get frame number
+        const frameNumStr = row[frameNumberCol]?.trim() || '';
+        const frameNum = parseInt(frameNumStr);
         
-        // Check if line starts with a number (sequence)
-        const firstComma = currentLine.indexOf(',');
-        if (firstComma === -1) {
-          currentIndex++;
+        if (isNaN(frameNum)) {
+          console.warn('Skipping row with invalid frame number:', row[frameNumberCol]);
           continue;
         }
         
-        const sequenceStr = currentLine.substring(0, firstComma).trim();
-        const seqNum = parseInt(sequenceStr);
-        if (isNaN(seqNum)) {
-          currentIndex++;
+        // Get prompt (default to column 1 if promptCol not found)
+        const prompt = (row[promptCol] || row[1] || '').trim();
+        
+        if (!prompt) {
+          console.warn('Skipping row with empty prompt. Frame:', frameNum);
           continue;
         }
         
-        // Parse the rest of the line(s) for the prompt
-        let remainingContent = currentLine.substring(firstComma + 1);
-        let prompt = '';
+        console.log(`Frame ${frameNum}: prompt length = ${prompt.length}`);
         
-        // Handle quoted multi-line content
-        if (remainingContent.trim().startsWith('"')) {
-          inQuotes = true;
-          remainingContent = remainingContent.trim().substring(1); // Remove starting quote
-          
-          // Continue reading until we find the closing quote
-          while (lineIdx < lines.length) {
-            for (let i = 0; i < remainingContent.length; i++) {
-              const char = remainingContent[i];
-              const nextChar = remainingContent[i + 1];
-              
-              if (char === '"' && nextChar === '"' && inQuotes) {
-                prompt += '"';
-                i++; // Skip next quote
-              } else if (char === '"') {
-                inQuotes = false;
-                // Skip the rest of the line after closing quote
-                remainingContent = remainingContent.substring(i + 1);
-                break;
-              } else {
-                prompt += char;
-              }
-            }
-            
-            if (!inQuotes) break;
-            
-            // If still in quotes, add newline and continue with next line
-            if (lineIdx + 1 < lines.length) {
-              prompt += '\n';
-              lineIdx++;
-              remainingContent = lines[lineIdx];
-            } else {
-              break;
-            }
-          }
-        } else {
-          // Simple case: no quotes, just take the content
-          prompt = remainingContent.trim();
-        }
-        
-        // Extract character from prompt or remaining content
+        // Extract character from prompt
         let character = '';
         const charMatch = prompt.match(/角色[:：]?\s*([A-Za-z\u4e00-\u9fa5]+)/);
         if (charMatch) {
@@ -332,28 +362,19 @@ const StoryboardWorkspace: React.FC = () => {
         const charactersInFrame = extractCharactersFromPrompt(prompt);
         
         frames.push({
-          frame_number: seqNum,
-          scene_number: Math.floor((seqNum - 1) / 10) + 1,
-          prompt: prompt.trim(),
-          originalPrompt: prompt.trim(),  // Save original prompt
-          charactersInFrame: charactersInFrame,  // Save characters list
+          frame_number: frameNum,
+          scene_number: Math.floor((frameNum - 1) / 10) + 1,
+          prompt: prompt,
+          originalPrompt: prompt,
+          charactersInFrame: charactersInFrame,
           character: character,
           status: 'pending'
         });
-        
-        currentIndex = lineIdx + 1;
       }
       
-      // Ensure each frame has originalPrompt saved
-      const framesWithOriginal = frames.map(frame => ({
-        ...frame,
-        originalPrompt: frame.originalPrompt || frame.prompt,
-        charactersInFrame: frame.charactersInFrame || extractCharactersFromPrompt(frame.prompt)
-      }));
+      console.log('Total frames parsed:', frames.length);
       
-      setScriptFrames(framesWithOriginal);
-      // Save original frames for reset functionality
-      // setOriginalScriptFrames(JSON.parse(JSON.stringify(framesWithOriginal)));
+      setScriptFrames(frames);
       
       // Auto-detect unique characters
       const uniqueChars = [...new Set(frames.map(f => f.character).filter(Boolean))];
@@ -373,7 +394,7 @@ const StoryboardWorkspace: React.FC = () => {
     } catch (error) {
       console.error('Failed to parse script:', error);
     }
-  };
+  };;;
 
   const handleEditPrompt = (frameNumber: number) => {
     const frame = scriptFrames.find(f => f.frame_number === frameNumber);
@@ -1947,15 +1968,22 @@ const StoryboardWorkspace: React.FC = () => {
     // Auto-generate snapshot name without user input
     const snapshotName = `${selectedScript.name}-${timeStr}`;
 
-    // Show confirmation dialog with the info
-    const confirmed = confirm(
-      `将保存当前工作状态：\n\n` +
-      `脚本名称: ${selectedScript.name}\n` +
-      `保存时间: ${timeStr}\n\n` +
-      `确定保存吗？`
-    );
+    // Prompt user to input custom record name
+    const customName = prompt('请输入记录名称：');
 
-    if (!confirmed) return;
+    // User cancelled the prompt
+    if (customName === null) return;
+
+    // If empty, ask for confirmation
+    if (!customName.trim()) {
+      const confirmed = confirm(
+        `记录名称为空，将只保存脚本名称和时间。\n\n` +
+        `脚本名称: ${selectedScript.name}\n` +
+        `保存时间: ${timeStr}\n\n` +
+        `确定保存吗？`
+      );
+      if (!confirmed) return;
+    }
 
     setSavingWorkSnapshot(true);
     try {
@@ -1999,7 +2027,8 @@ const StoryboardWorkspace: React.FC = () => {
       await snapshotService.createSnapshot(
         selectedScript.id,
         snapshotName,
-        snapshotData
+        snapshotData,
+        customName.trim() || null
       );
 
       alert('工作记录保存成功!');

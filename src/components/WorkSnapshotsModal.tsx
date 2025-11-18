@@ -225,6 +225,14 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
                             <p className="text-sm text-gray-900">{extractTimeFromSnapshotName(snapshot.snapshotName)}</p>
                           </div>
 
+                          {/* 记录名称 */}
+                          <div className="flex-shrink-0 w-44">
+                            <p className="text-xs text-gray-500">记录名称</p>
+                            <p className="text-sm text-gray-900 truncate">
+                              {snapshot.customName || '(无)'}
+                            </p>
+                          </div>
+
                           {/* 脚本名称 */}
                           <div className="flex-shrink-0 w-44">
                             <p className="text-xs text-gray-500">脚本名称</p>

@@ -24,6 +24,7 @@ export interface WorkSnapshot {
   id: number;
   projectId: number;
   snapshotName: string;
+  customName?: string;
   snapshotData?: WorkSnapshotData;
   createdAt: string;
   updatedAt?: string;
@@ -63,7 +64,8 @@ export const snapshotService = {
   async createSnapshot(
     projectId: number,
     snapshotName: string,
-    snapshotData: WorkSnapshotData
+    snapshotData: WorkSnapshotData,
+    customName?: string | null
   ): Promise<{ id: number; message: string }> {
     const response = await fetch(`${API_BASE_URL}/snapshots`, {
       method: 'POST',
@@ -74,7 +76,8 @@ export const snapshotService = {
       body: JSON.stringify({
         projectId,
         snapshotName,
-        snapshotData
+        snapshotData,
+        customName
       })
     });
 
