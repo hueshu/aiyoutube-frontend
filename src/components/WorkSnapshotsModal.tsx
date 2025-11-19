@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Clock, Trash2, RotateCcw, Plus, ExternalLink } from 'lucide-react';
 import { snapshotService, type WorkSnapshot, type WorkSnapshotData } from '../services/snapshotService';
+import { deleteVideoPrompt } from '../services/videoPromptsService';
 import VideoUploader from './VideoUploader';
 
 interface WorkSnapshotsModalProps {
@@ -151,6 +152,26 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
     }
   };
 
+  const handleDeleteVideoPrompt = async (snapshotId: number, promptId: number) => {
+    if (!confirm('确定删除这个Prompt吗？')) return;
+
+    try {
+      await deleteVideoPrompt(promptId);
+      setSnapshots(snapshots.map(s => {
+        if (s.id === snapshotId) {
+          return {
+            ...s,
+            videoPrompts: (s.videoPrompts || []).filter(vp => vp.id !== promptId)
+          };
+        }
+        return s;
+      }));
+    } catch (error) {
+      console.error('Failed to delete video prompt:', error);
+      alert(error instanceof Error ? error.message : '删除失败');
+    }
+  };
+
   const extractTimeFromSnapshotName = (snapshotName: string): string => {
     // Extract time from snapshot name format: "ScriptName-YYYY-MM-DD HH:MM:SS"
     const match = snapshotName.match(/(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{1,2})/);
@@ -220,13 +241,13 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
                         {/* 第一行：基本信息和操作按钮 */}
                         <div className="flex items-center gap-4">
                           {/* 保存时间 */}
-                          <div className="flex-shrink-0 w-36">
+                          <div className="flex-shrink-0 w-32">
                             <p className="text-xs text-gray-500">保存时间</p>
                             <p className="text-sm text-gray-900">{extractTimeFromSnapshotName(snapshot.snapshotName)}</p>
                           </div>
 
                           {/* 记录名称 */}
-                          <div className="flex-shrink-0 w-44">
+                          <div className="flex-shrink-0 w-40">
                             <p className="text-xs text-gray-500">记录名称</p>
                             <p className="text-sm text-gray-900 truncate">
                               {snapshot.customName || '(无)'}
@@ -234,9 +255,34 @@ const WorkSnapshotsModal: React.FC<WorkSnapshotsModalProps> = ({
                           </div>
 
                           {/* 脚本名称 */}
-                          <div className="flex-shrink-0 w-44">
+                          <div className="flex-shrink-0 w-40">
                             <p className="text-xs text-gray-500">脚本名称</p>
                             <p className="text-sm text-gray-900 truncate">{extractScriptNameOnly(snapshot.snapshotName)}</p>
+                          </div>
+
+                          {/* 图转视频Prompt */}
+                          <div className="flex-shrink-0 w-44">
+                            <p className="text-xs text-gray-500">图转视频Prompt</p>
+                            {snapshot.videoPrompts && snapshot.videoPrompts.length > 0 ? (
+                              <div className="text-sm space-y-0.5">
+                                {snapshot.videoPrompts.map((vp) => (
+                                  <div key={vp.id} className="flex items-center gap-1 group">
+                                    <p className="text-gray-900 truncate flex-1" title={vp.promptName}>
+                                      • {vp.promptName}
+                                    </p>
+                                    <button
+                                      onClick={() => handleDeleteVideoPrompt(snapshot.id, vp.id)}
+                                      className="flex-shrink-0 text-gray-400 hover:text-red-600 transition-colors"
+                                      title="删除"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-400">(无)</p>
+                            )}
                           </div>
 
                           {/* 视频上传和列表 */}

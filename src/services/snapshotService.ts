@@ -20,6 +20,12 @@ export interface UserYouTubeLink {
   addedAt: string;
 }
 
+export interface VideoPromptSummary {
+  id: number;
+  promptName: string;
+  createdAt: string;
+}
+
 export interface WorkSnapshot {
   id: number;
   projectId: number;
@@ -32,6 +38,7 @@ export interface WorkSnapshot {
   videos: SnapshotVideo[];
   videosCount?: number;
   userYoutubeLinks?: UserYouTubeLink[];
+  videoPrompts?: VideoPromptSummary[];
 }
 
 export interface SnapshotVideo {

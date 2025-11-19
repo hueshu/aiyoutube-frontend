@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Play, Calendar, Loader, AlertCircle } from 'lucide-react';
+import { Plus, X, Play, Calendar, Loader } from 'lucide-react';
 import { API_URL } from '../config/api';
 import { useAuthStore } from '../store/authStore';
 
@@ -11,12 +11,12 @@ interface BenchmarkVideo {
   tags: string[];
   videoFileUrl: string;
   audioFileUrl?: string;
-  previewUrl?: string;
+  videoInfoUrl?: string;
+  clipsUrl?: string;
+  keyframesUrl?: string;
+  shotsInfoUrl?: string;
   createdAt: string;
   createdBy: string;
-  uploadType?: 'url' | 'manual' | 'failed_pending_upload';
-  originalFileName?: string;
-  taskId?: string;
 }
 
 interface VideoInput {
@@ -28,14 +28,8 @@ interface VideoInput {
 interface VideoTask {
   taskId: string;
   videoUrl: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed' | 'failed_pending_upload';
+  status: 'pending' | 'locked' | 'processing' | 'completed' | 'failed';
   error?: string;
-}
-
-interface UploadModalData {
-  mode: 'new' | '补传';
-  videoId?: string;
-  title?: string;
 }
 
 const BenchmarkVideoLibrary: React.FC = () => {
@@ -50,18 +44,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
   const [videoInputs, setVideoInputs] = useState<VideoInput[]>([{ url: '', description: '', tags: '' }]);
   const [submitting, setSubmitting] = useState(false);
 
-  // 手动上传模态框
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [uploadModalData, setUploadModalData] = useState<UploadModalData>({ mode: 'new' });
-  const [uploadForm, setUploadForm] = useState({
-    videoFile: null as File | null,
-    audioFile: null as File | null,
-    title: '',
-    description: '',
-    tags: '',
-    url: '',
-  });
-  const [uploading, setUploading] = useState(false);
 
   // 编辑模态框
   const [showEditModal, setShowEditModal] = useState(false);
@@ -130,7 +112,7 @@ const BenchmarkVideoLibrary: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const response = await fetch(`${API_URL}/benchmark-videos`, {
+      const response = await fetch(`${API_URL}/benchmark-video-tasks/submit`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -145,24 +127,22 @@ const BenchmarkVideoLibrary: React.FC = () => {
         })
       });
 
-      if (response.status === 202) {
+      if (response.ok) {
         const data = await response.json();
-        const tasks: VideoTask[] = data.tasks.map((t: any) => ({
-          taskId: t.taskId,
-          videoUrl: t.videoUrl,
-          status: t.status,
+        const taskIds = data.taskIds || [];
+
+        // Initialize task list
+        const tasks: VideoTask[] = taskIds.map((taskId: string) => ({
+          taskId,
+          videoUrl: '',
+          status: 'pending' as const,
         }));
 
         setProcessingTasks(tasks);
         setShowAddModal(false);
         setShowProcessing(true);
         setVideoInputs([{ url: '', description: '', tags: '' }]);
-        startPollingTasks(tasks.map(t => t.taskId));
-      } else if (response.ok) {
-        alert('视频添加成功！');
-        setShowAddModal(false);
-        setVideoInputs([{ url: '', description: '', tags: '' }]);
-        fetchVideos();
+        startPollingTasks(taskIds);
       } else {
         const error = await response.json();
         alert(`添加失败: ${error.error || '未知错误'}`);
@@ -178,56 +158,53 @@ const BenchmarkVideoLibrary: React.FC = () => {
   const startPollingTasks = (taskIds: string[]) => {
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch(`${API_URL}/benchmark-videos/tasks/status`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ taskIds })
-        });
+        // Query each task individually
+        const taskPromises = taskIds.map(taskId =>
+          fetch(`${API_URL}/benchmark-video-tasks/${taskId}`, {
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+          }).then(res => res.ok ? res.json() : null)
+        );
 
-        if (response.ok) {
-          const data = await response.json();
-          const tasks: VideoTask[] = data.tasks.map((t: any) => ({
-            taskId: t.taskId,
-            videoUrl: t.videoUrl,
-            status: t.status,
-            error: t.error,
+        const taskResults = await Promise.all(taskPromises);
+        const tasks: VideoTask[] = taskResults
+          .filter(result => result && result.task)
+          .map((result: any) => ({
+            taskId: result.task.taskId,
+            videoUrl: result.task.videoUrl,
+            status: result.task.status,
+            error: result.task.errorMessage,
           }));
 
-          // 只在状态真正变化时才更新
-          setProcessingTasks(prevTasks => {
-            const hasChanged = tasks.some((newTask, index) => {
-              const prevTask = prevTasks[index];
-              return !prevTask || prevTask.status !== newTask.status;
-            });
-            return hasChanged ? tasks : prevTasks;
+        // Only update when status actually changes
+        setProcessingTasks(prevTasks => {
+          const hasChanged = tasks.some((newTask, index) => {
+            const prevTask = prevTasks[index];
+            return !prevTask || prevTask.status !== newTask.status;
           });
+          return hasChanged ? tasks : prevTasks;
+        });
 
-          const allCompleted = tasks.every(t =>
-            t.status === 'completed' ||
-            t.status === 'failed' ||
-            t.status === 'failed_pending_upload'
-          );
+        const allCompleted = tasks.every(t =>
+          t.status === 'completed' ||
+          t.status === 'failed'
+        );
 
-          if (allCompleted) {
-            clearInterval(pollInterval);
-            fetchVideos();
+        if (allCompleted) {
+          clearInterval(pollInterval);
+          fetchVideos();
 
-            const completedCount = tasks.filter(t => t.status === 'completed').length;
-            const failedCount = tasks.filter(t => t.status === 'failed').length;
-            const pendingUploadCount = tasks.filter(t => t.status === 'failed_pending_upload').length;
+          const completedCount = tasks.filter(t => t.status === 'completed').length;
+          const failedCount = tasks.filter(t => t.status === 'failed').length;
 
-            setTimeout(() => {
-              let message = `处理完成！成功: ${completedCount}个`;
-              if (failedCount > 0) message += `，失败: ${failedCount}个`;
-              if (pendingUploadCount > 0) message += `，待上传: ${pendingUploadCount}个`;
-              alert(message);
-              setShowProcessing(false);
-              setProcessingTasks([]);
-            }, 1000);
-          }
+          setTimeout(() => {
+            let message = `处理完成！成功: ${completedCount}个`;
+            if (failedCount > 0) message += `，失败: ${failedCount}个`;
+            alert(message);
+            setShowProcessing(false);
+            setProcessingTasks([]);
+          }, 1000);
         }
       } catch (error) {
         console.error('Failed to poll task status:', error);
@@ -306,23 +283,30 @@ const BenchmarkVideoLibrary: React.FC = () => {
     }
   };
 
-  const openUploadModalForFailed = (video: BenchmarkVideo) => {
-    setUploadModalData({ mode: '补传', videoId: video.id, title: video.title });
-    setUploadForm({
-      videoFile: null,
-      audioFile: null,
-      title: video.title,
-      description: video.description,
-      tags: video.tags.join(', '),
-      url: video.url,
-    });
-    setShowUploadModal(true);
-  };
-
   const handleDownload = async (fileUrl: string, title: string) => {
     try {
       const fullUrl = fileUrl.startsWith('http') ? fileUrl : `${API_URL.replace('/api/v1', '')}${fileUrl}`;
-      const ext = fileUrl.includes('.m4a') ? 'm4a' : 'mp4';
+
+      // Extract file extension from URL
+      let ext = 'mp4'; // default
+      if (fileUrl.includes('.m4a')) {
+        ext = 'm4a';
+      } else if (fileUrl.includes('.json')) {
+        ext = 'json';
+      } else if (fileUrl.includes('.mp4')) {
+        ext = 'mp4';
+      } else if (fileUrl.includes('.zip')) {
+        ext = 'zip';
+      } else {
+        // Try to get extension from URL
+        const urlParts = fileUrl.split('.');
+        if (urlParts.length > 1) {
+          const lastPart = urlParts[urlParts.length - 1].split('?')[0]; // Remove query params
+          if (lastPart.length <= 5) { // reasonable extension length
+            ext = lastPart;
+          }
+        }
+      }
 
       const response = await fetch(fullUrl);
       const blob = await response.blob();
@@ -338,60 +322,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
     } catch (error) {
       console.error('Download failed:', error);
       alert('下载失败，请重试');
-    }
-  };
-
-  const handleUpload = async () => {
-    if (!uploadForm.videoFile) {
-      alert('请选择视频文件');
-      return;
-    }
-
-    if (uploadModalData.mode === 'new' && !uploadForm.title) {
-      alert('请输入标题');
-      return;
-    }
-
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('video', uploadForm.videoFile);
-      if (uploadForm.audioFile) {
-        formData.append('audio', uploadForm.audioFile);
-      }
-
-      if (uploadModalData.mode === 'new') {
-        formData.append('title', uploadForm.title);
-        formData.append('description', uploadForm.description);
-        formData.append('tags', uploadForm.tags);
-        formData.append('url', uploadForm.url);
-      }
-
-      const url = uploadModalData.mode === 'new'
-        ? `${API_URL}/benchmark-videos/upload`
-        : `${API_URL}/benchmark-videos/upload/${uploadModalData.videoId}`;
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData
-      });
-
-      if (response.ok) {
-        alert(uploadModalData.mode === 'new' ? '上传成功！' : '补传成功！');
-        setShowUploadModal(false);
-        fetchVideos();
-      } else {
-        const error = await response.json();
-        alert(`上传失败: ${error.error || '未知错误'}`);
-      }
-    } catch (error) {
-      console.error('Upload failed:', error);
-      alert('上传失败，请重试');
-    } finally {
-      setUploading(false);
     }
   };
 
@@ -500,51 +430,74 @@ const BenchmarkVideoLibrary: React.FC = () => {
 
                             {/* 视频列 */}
                             <td className="px-6 py-4">
-                              {video.uploadType === 'failed_pending_upload' ? (
-                                <div className="w-40 h-24 bg-red-50 border-2 border-red-300 rounded flex flex-col items-center justify-center text-red-600">
-                                  <AlertCircle className="w-8 h-8 mb-1" />
-                                  <span className="text-xs font-medium">下载失败</span>
+                              <button
+                                onClick={() => setPlayingVideo(video.id)}
+                                className="relative w-40 h-24 bg-gray-900 rounded overflow-hidden hover:opacity-90 transition-opacity cursor-pointer group"
+                              >
+                                <video
+                                  src={video.videoFileUrl.startsWith('http')
+                                    ? video.videoFileUrl
+                                    : `${API_URL.replace('/api/v1', '')}${video.videoFileUrl}`}
+                                  className="w-full h-full object-contain"
+                                  muted
+                                  preload="metadata"
+                                />
+                                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all">
+                                  <Play className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
                                 </div>
-                              ) : (
-                                <button
-                                  onClick={() => setPlayingVideo(video.id)}
-                                  className="relative w-40 h-24 bg-gray-900 rounded overflow-hidden hover:opacity-90 transition-opacity cursor-pointer group"
-                                >
-                                  <video
-                                    src={video.videoFileUrl.startsWith('http')
-                                      ? video.videoFileUrl
-                                      : `${API_URL.replace('/api/v1', '')}${video.videoFileUrl}`}
-                                    className="w-full h-full object-contain"
-                                    muted
-                                    preload="metadata"
-                                  />
-                                  <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-0 group-hover:bg-opacity-30 transition-all">
-                                    <Play className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-                                  </div>
-                                </button>
-                              )}
+                              </button>
                             </td>
 
                             {/* 下载列 */}
                             <td className="px-6 py-4">
-                              {video.uploadType !== 'failed_pending_upload' && (
-                                <div className="flex flex-wrap gap-2 text-sm">
+                              <div className="flex flex-col gap-1 text-sm">
+                                <button
+                                  onClick={() => handleDownload(video.videoFileUrl, video.title)}
+                                  className="text-green-600 hover:text-green-800 hover:underline text-left"
+                                >
+                                  下载视频
+                                </button>
+                                {video.audioFileUrl && (
                                   <button
-                                    onClick={() => handleDownload(video.videoFileUrl, video.title)}
-                                    className="text-green-600 hover:text-green-800 hover:underline"
+                                    onClick={() => handleDownload(video.audioFileUrl!, `${video.title}_audio`)}
+                                    className="text-purple-600 hover:text-purple-800 hover:underline text-left"
                                   >
-                                    下载视频
+                                    下载音频
                                   </button>
-                                  {video.audioFileUrl && (
-                                    <button
-                                      onClick={() => handleDownload(video.audioFileUrl!, video.title)}
-                                      className="text-purple-600 hover:text-purple-800 hover:underline"
-                                    >
-                                      下载音频
-                                    </button>
-                                  )}
-                                </div>
-                              )}
+                                )}
+                                {video.videoInfoUrl && (
+                                  <button
+                                    onClick={() => handleDownload(video.videoInfoUrl!, `${video.title}_video_info`)}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline text-left"
+                                  >
+                                    视频信息
+                                  </button>
+                                )}
+                                {video.clipsUrl && (
+                                  <button
+                                    onClick={() => handleDownload(video.clipsUrl!, `${video.title}_clips`)}
+                                    className="text-orange-600 hover:text-orange-800 hover:underline text-left"
+                                  >
+                                    分镜片段
+                                  </button>
+                                )}
+                                {video.keyframesUrl && (
+                                  <button
+                                    onClick={() => handleDownload(video.keyframesUrl!, `${video.title}_keyframes`)}
+                                    className="text-indigo-600 hover:text-indigo-800 hover:underline text-left"
+                                  >
+                                    关键帧
+                                  </button>
+                                )}
+                                {video.shotsInfoUrl && (
+                                  <button
+                                    onClick={() => handleDownload(video.shotsInfoUrl!, `${video.title}_shots_info`)}
+                                    className="text-teal-600 hover:text-teal-800 hover:underline text-left"
+                                  >
+                                    镜头信息
+                                  </button>
+                                )}
+                              </div>
                             </td>
 
                             {/* 操作说明列 */}
@@ -585,15 +538,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
                             {isAdmin && (
                               <td className="px-6 py-4">
                                 <div className="flex flex-wrap gap-2 text-sm">
-                                  {/* 如果是下载失败的视频，显示上传按钮 */}
-                                  {video.uploadType === 'failed_pending_upload' && (
-                                    <button
-                                      onClick={() => openUploadModalForFailed(video)}
-                                      className="text-orange-600 hover:text-orange-800 hover:underline"
-                                    >
-                                      上传
-                                    </button>
-                                  )}
                                   <button
                                     onClick={() => openEditModal(video)}
                                     className="text-blue-600 hover:text-blue-800 hover:underline"
@@ -723,106 +667,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
         </div>
       )}
 
-      {/* 上传视频模态框 */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">
-                  {uploadModalData.mode === 'new' ? '上传视频' : `补传视频：${uploadModalData.title}`}
-                </h2>
-                <button onClick={() => setShowUploadModal(false)} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-6 h-6" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">视频文件 *</label>
-                  <input
-                    type="file"
-                    accept="video/*"
-                    onChange={(e) => setUploadForm({ ...uploadForm, videoFile: e.target.files?.[0] || null })}
-                    className="w-full"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">音频文件（可选）</label>
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    onChange={(e) => setUploadForm({ ...uploadForm, audioFile: e.target.files?.[0] || null })}
-                    className="w-full"
-                  />
-                </div>
-
-                {uploadModalData.mode === 'new' && (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">标题 *</label>
-                      <input
-                        type="text"
-                        value={uploadForm.title}
-                        onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
-                        className="w-full px-3 py-2 border rounded-lg"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">操作说明</label>
-                      <input
-                        type="text"
-                        value={uploadForm.description}
-                        onChange={(e) => setUploadForm({ ...uploadForm, description: e.target.value })}
-                        className="w-full px-3 py-2 border rounded-lg"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">标签（逗号分隔）</label>
-                      <input
-                        type="text"
-                        value={uploadForm.tags}
-                        onChange={(e) => setUploadForm({ ...uploadForm, tags: e.target.value })}
-                        className="w-full px-3 py-2 border rounded-lg"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">原视频URL（可选）</label>
-                      <input
-                        type="text"
-                        value={uploadForm.url}
-                        onChange={(e) => setUploadForm({ ...uploadForm, url: e.target.value })}
-                        className="w-full px-3 py-2 border rounded-lg"
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={handleUpload}
-                  disabled={uploading}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {uploading ? '上传中...' : '上传'}
-                </button>
-                <button
-                  onClick={() => setShowUploadModal(false)}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-                >
-                  取消
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 处理进度浮窗 */}
       {showProcessing && processingTasks.length > 0 && (
         <div className="fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-4 max-w-md z-50 transition-all duration-300 ease-in-out">
@@ -842,8 +686,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
                   <span className="text-green-600">✓</span>
                 ) : task.status === 'failed' ? (
                   <span className="text-red-600">✗</span>
-                ) : task.status === 'failed_pending_upload' ? (
-                  <span className="text-yellow-600">⚠</span>
                 ) : (
                   <Loader className="w-4 h-4 animate-spin text-blue-600" />
                 )}
@@ -853,7 +695,6 @@ const BenchmarkVideoLibrary: React.FC = () => {
                   {task.status === 'processing' && '处理中'}
                   {task.status === 'completed' && '完成'}
                   {task.status === 'failed' && '失败'}
-                  {task.status === 'failed_pending_upload' && '待上传'}
                 </span>
               </div>
             ))}
