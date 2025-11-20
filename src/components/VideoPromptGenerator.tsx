@@ -43,6 +43,8 @@ interface ImagePrompt {
   error?: string;
   upLink?: string;    // ID of the image linked upward (this as tail frame)
   downLink?: string;  // ID of the image linked downward (this as head frame)
+  originalPrompt?: string;  // 原始 prompt（包含角色占位符）
+  characterMappings?: Record<string, string>;  // 角色映射关系
 }
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -146,6 +148,37 @@ const SYSTEM_PROMPT = `# 身份和使命
 4.  **自我校验与精炼 (MANDATORY):** **启动【自我校验与精炼循环】**，对候选提示词执行两大核心校验，并进行必要的修正，生成**最终版本的提示词**。
 5.  **最终审查与输出:** 检查最终版本的提示词是否完全符合【输出格式】要求，然后交付成果。`;
 
+// 角色占位符工具函数
+const detectCharacterPlaceholders = (text: string): string[] => {
+  if (!text) return [];
+
+  const chinesePattern = /角色[A-Z]/g;
+  const englishPattern = /Character [A-Z]/gi;
+
+  const chineseMatches = text.match(chinesePattern) || [];
+  const englishMatches = text.match(englishPattern) || [];
+
+  // 去重并排序
+  return [...new Set([...chineseMatches, ...englishMatches])].sort();
+};
+
+const replaceCharacters = (
+  text: string,
+  mappings: Record<string, string>
+): string => {
+  let result = text;
+
+  Object.entries(mappings).forEach(([placeholder, description]) => {
+    if (description && description.trim()) {
+      // 全局替换，忽略大小写（针对英文）
+      const regex = new RegExp(placeholder, 'gi');
+      result = result.replace(regex, description);
+    }
+  });
+
+  return result;
+};
+
 const VideoPromptGenerator: React.FC = () => {
   const [images, setImages] = useState<ImagePrompt[]>([]);
   const [isProcessingAll, setIsProcessingAll] = useState(false);
@@ -199,6 +232,17 @@ const VideoPromptGenerator: React.FC = () => {
   const [successTaskCount, setSuccessTaskCount] = useState(0);
   const [completedVideoCount, setCompletedVideoCount] = useState(0);
   const [failedVideoCount, setFailedVideoCount] = useState(0);
+
+  // Character mapping states
+  const [showCharacterMappingModal, setShowCharacterMappingModal] = useState(false);
+  const [detectedCharacters, setDetectedCharacters] = useState<string[]>([]);
+  const [characterDescriptions, setCharacterDescriptions] = useState<Record<string, string>>({});
+  const [pendingImportData, setPendingImportData] = useState<any>(null);
+  const [savedCharacterMappings, setSavedCharacterMappings] = useState<Record<string, string>>(() => {
+    // 从 localStorage 加载历史映射
+    const saved = localStorage.getItem('characterMappings');
+    return saved ? JSON.parse(saved) : {};
+  });
 
   // Modal states for single video regeneration
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
@@ -306,10 +350,18 @@ const VideoPromptGenerator: React.FC = () => {
     // Collect all prompts data
     const promptsData = images
       .filter(img => img.generatedPrompt)
-      .map(img => ({
-        generatedPrompt: img.generatedPrompt,
-        translatedPrompt: img.translatedPrompt || ''
-      }));
+      .map(img => {
+        // 如果有原始 prompt 和角色映射，保存原始版本（带占位符）
+        let promptToSave = img.generatedPrompt;
+        if (img.originalPrompt && img.characterMappings) {
+          promptToSave = img.originalPrompt;
+        }
+
+        return {
+          generatedPrompt: promptToSave,
+          translatedPrompt: img.translatedPrompt || ''
+        };
+      });
 
     if (promptsData.length === 0) {
       alert('没有可保存的提示词');
@@ -417,28 +469,119 @@ const VideoPromptGenerator: React.FC = () => {
         if (!confirmed) return;
       }
 
-      // Import dynamic descriptions sequentially
-      setImages(prev => prev.map((img, index) => {
-        if (index < script.parsed_content.length) {
-          const frame = script.parsed_content[index];
-          // Only update if dynamicDescription exists, otherwise keep original
-          if (frame.dynamicDescription) {
-            return {
-              ...img,
-              generatedPrompt: frame.dynamicDescription
-            };
-          }
+      // 检测角色占位符
+      const allCharacters = new Set<string>();
+      script.parsed_content.forEach((frame: any) => {
+        if (frame.dynamicDescription) {
+          const chars = detectCharacterPlaceholders(frame.dynamicDescription);
+          chars.forEach(c => allCharacters.add(c));
         }
-        return img;
-      }));
+      });
 
-      alert('导入成功！');
-      setShowImportScriptModal(false);
-      setSelectedScriptId('');
+      if (allCharacters.size > 0) {
+        // 有角色占位符，显示对话框
+        const charactersArray = Array.from(allCharacters).sort();
+        const initialMappings: Record<string, string> = {};
+
+        // 预填充历史映射
+        charactersArray.forEach(char => {
+          if (savedCharacterMappings[char]) {
+            initialMappings[char] = savedCharacterMappings[char];
+          }
+        });
+
+        setDetectedCharacters(charactersArray);
+        setCharacterDescriptions(initialMappings);
+        setPendingImportData({
+          type: 'script',
+          data: script.parsed_content
+        });
+        setShowCharacterMappingModal(true);
+      } else {
+        // 没有角色占位符，直接导入
+        applyScriptData(script.parsed_content, {});
+      }
     } catch (error) {
       console.error('Failed to import script dynamic description:', error);
       alert('导入失败，请重试');
     }
+  };
+
+  // 应用脚本数据（新增函数）
+  const applyScriptData = (parsedContent: any[], mappings: Record<string, string>) => {
+    setImages(prev => prev.map((img, index) => {
+      if (index < parsedContent.length) {
+        const frame = parsedContent[index];
+        if (frame.dynamicDescription) {
+          const original = frame.dynamicDescription;
+          const replaced = Object.keys(mappings).length > 0
+            ? replaceCharacters(original, mappings)
+            : original;
+
+          return {
+            ...img,
+            originalPrompt: Object.keys(mappings).length > 0 ? original : undefined,
+            generatedPrompt: replaced,
+            characterMappings: Object.keys(mappings).length > 0 ? mappings : undefined
+          };
+        }
+      }
+      return img;
+    }));
+
+    alert('导入成功！');
+    setShowImportScriptModal(false);
+    setSelectedScriptId('');
+  };
+
+  // 应用粘贴数据（新增函数 - 处理 JSON 格式）
+  const applyPasteDataFromJson = (parsedData: any[], mappings: Record<string, string>) => {
+    const minCount = Math.min(parsedData.length, images.length);
+
+    setImages(prev => prev.map((img, index) => {
+      const sceneData = parsedData[index];
+
+      // If no corresponding JSON data, keep original
+      if (!sceneData?.prompts) {
+        return img;
+      }
+
+      const original = sceneData.prompts.chinese || img.generatedPrompt;
+      const replaced = Object.keys(mappings).length > 0
+        ? replaceCharacters(original, mappings)
+        : original;
+
+      return {
+        ...img,
+        originalPrompt: Object.keys(mappings).length > 0 ? original : undefined,
+        generatedPrompt: replaced,
+        translatedPrompt: sceneData.prompts.english || img.translatedPrompt,
+        characterMappings: Object.keys(mappings).length > 0 ? mappings : undefined
+      };
+    }));
+
+    alert(minCount === images.length
+      ? '成功导入Prompt数据'
+      : `成功导入${minCount}条Prompt数据`);
+  };
+
+  // 处理角色映射确认
+  const handleCharacterMappingConfirm = () => {
+    if (!pendingImportData) return;
+
+    const { type, data } = pendingImportData;
+
+    if (type === 'script') {
+      // 处理脚本动态描述导入
+      applyScriptData(data, characterDescriptions);
+    } else if (type === 'paste') {
+      // 处理粘贴 prompt 导入（JSON 格式）
+      applyPasteDataFromJson(data, characterDescriptions);
+    }
+
+    // 清理状态
+    setCharacterDescriptions({});
+    setPendingImportData(null);
   };
 
   // Handle file selection
@@ -1074,25 +1217,38 @@ const VideoPromptGenerator: React.FC = () => {
         alert(`数量不匹配：JSON有${parsedData.length}条，图片有${images.length}张。将导入前${minCount}条数据`);
       }
 
-      // Import data (with boundary check)
-      setImages(prev => prev.map((img, index) => {
-        const sceneData = parsedData[index];
-
-        // If no corresponding JSON data, keep original
-        if (!sceneData?.prompts) {
-          return img;
+      // 检测角色占位符
+      const allCharacters = new Set<string>();
+      parsedData.forEach((sceneData: any) => {
+        if (sceneData?.prompts?.chinese) {
+          const chars = detectCharacterPlaceholders(sceneData.prompts.chinese);
+          chars.forEach(c => allCharacters.add(c));
         }
+      });
 
-        return {
-          ...img,
-          generatedPrompt: sceneData.prompts.chinese || img.generatedPrompt,
-          translatedPrompt: sceneData.prompts.english || img.translatedPrompt
-        };
-      }));
+      if (allCharacters.size > 0) {
+        // 有角色占位符，显示对话框
+        const charactersArray = Array.from(allCharacters).sort();
+        const initialMappings: Record<string, string> = {};
 
-      alert(minCount === images.length
-        ? '成功导入Prompt数据'
-        : `成功导入${minCount}条Prompt数据`);
+        // 预填充历史映射
+        charactersArray.forEach(char => {
+          if (savedCharacterMappings[char]) {
+            initialMappings[char] = savedCharacterMappings[char];
+          }
+        });
+
+        setDetectedCharacters(charactersArray);
+        setCharacterDescriptions(initialMappings);
+        setPendingImportData({
+          type: 'paste',
+          data: parsedData
+        });
+        setShowCharacterMappingModal(true);
+      } else {
+        // 没有角色占位符，直接导入
+        applyPasteDataFromJson(parsedData, {});
+      }
     } catch (error) {
       if (error instanceof SyntaxError) {
         alert('JSON格式错误：无法解析剪贴板内容');
@@ -1973,6 +2129,90 @@ const VideoPromptGenerator: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
+      {/* Character Mapping Modal */}
+      {showCharacterMappingModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              设置角色描述
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              检测到 {detectedCharacters.length} 个角色占位符，请输入具体描述：
+            </p>
+
+            <div className="space-y-3 max-h-96 overflow-y-auto mb-6">
+              {detectedCharacters.map(character => (
+                <div key={character}>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {character}
+                  </label>
+                  <input
+                    type="text"
+                    value={characterDescriptions[character] || ''}
+                    onChange={(e) => {
+                      setCharacterDescriptions(prev => ({
+                        ...prev,
+                        [character]: e.target.value
+                      }));
+                    }}
+                    placeholder="例如：紫头发女人"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowCharacterMappingModal(false);
+                  setCharacterDescriptions({});
+                  setPendingImportData(null);
+                }}
+                className="flex-1 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  // 检查是否所有角色都填写了描述
+                  const allFilled = detectedCharacters.every(char =>
+                    characterDescriptions[char] && characterDescriptions[char].trim()
+                  );
+
+                  if (!allFilled) {
+                    alert('请为所有角色输入描述');
+                    return;
+                  }
+
+                  // 保存到历史映射
+                  const updatedMappings = { ...savedCharacterMappings, ...characterDescriptions };
+                  setSavedCharacterMappings(updatedMappings);
+                  localStorage.setItem('characterMappings', JSON.stringify(updatedMappings));
+
+                  // 处理导入数据
+                  handleCharacterMappingConfirm();
+
+                  setShowCharacterMappingModal(false);
+                }}
+                disabled={!detectedCharacters.every(char =>
+                  characterDescriptions[char] && characterDescriptions[char].trim()
+                )}
+                className={`flex-1 px-4 py-2 rounded-lg transition-colors ${
+                  detectedCharacters.every(char =>
+                    characterDescriptions[char] && characterDescriptions[char].trim()
+                  )
+                    ? 'bg-indigo-500 text-white hover:bg-indigo-600'
+                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirm Modal */}
       {showConfirmModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
