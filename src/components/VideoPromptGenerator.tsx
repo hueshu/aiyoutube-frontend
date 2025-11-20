@@ -447,8 +447,76 @@ const VideoPromptGenerator: React.FC = () => {
     processFiles(files);
   };
 
+  // 从视频文件提取第一帧
+  const extractFirstFrame = async (videoFile: File, timeout = 10000): Promise<{ blob: Blob; previewUrl: string }> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.src = URL.createObjectURL(videoFile);
+      video.muted = true;
+      video.preload = 'metadata';
+
+      let timeoutId: number;
+      let resolved = false;
+
+      const cleanup = () => {
+        if (!resolved) {
+          resolved = true;
+          URL.revokeObjectURL(video.src);
+          clearTimeout(timeoutId);
+          video.remove();
+        }
+      };
+
+      // 超时处理
+      timeoutId = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('提取第一帧超时'));
+      }, timeout);
+
+      video.addEventListener('loadedmetadata', () => {
+        // 提取第一帧（0.1秒处，避免黑帧）
+        video.currentTime = 0.1;
+      });
+
+      video.addEventListener('seeked', () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+
+          if (!ctx) {
+            cleanup();
+            reject(new Error('无法创建 Canvas 上下文'));
+            return;
+          }
+
+          ctx.drawImage(video, 0, 0);
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const previewUrl = URL.createObjectURL(blob);
+              cleanup();
+              resolve({ blob, previewUrl });
+            } else {
+              cleanup();
+              reject(new Error('无法生成图片'));
+            }
+          }, 'image/jpeg', 0.9);
+        } catch (error) {
+          cleanup();
+          reject(error);
+        }
+      });
+
+      video.addEventListener('error', () => {
+        cleanup();
+        reject(new Error('视频加载失败'));
+      });
+    });
+  };
+
   // Process files (used by both file input and drag-drop)
-  const processFiles = (files: File[]) => {
+  const processFiles = async (files: File[]) => {
     // 先对文件按名称排序（从小到大）
     const sortedFiles = [...files].sort((a, b) => {
       // 使用自然排序，正确处理数字
@@ -458,15 +526,45 @@ const VideoPromptGenerator: React.FC = () => {
       });
     });
 
-    const newImages: ImagePrompt[] = sortedFiles.map(file => ({
-      id: Math.random().toString(36).substr(2, 9),
-      name: file.name,
-      file: file,
-      preview: URL.createObjectURL(file),
-      supplementPrompt: '',
-      generatedPrompt: '',
-      isProcessing: false
-    }));
+    const newImages: ImagePrompt[] = [];
+
+    for (const file of sortedFiles) {
+      if (file.type.startsWith('image/')) {
+        // 图片文件 - 直接添加
+        newImages.push({
+          id: Math.random().toString(36).substr(2, 9),
+          name: file.name,
+          file: file,
+          preview: URL.createObjectURL(file),
+          supplementPrompt: '',
+          generatedPrompt: '',
+          isProcessing: false
+        });
+      } else if (file.type.startsWith('video/')) {
+        // 视频文件 - 提取第一帧
+        try {
+          const { blob, previewUrl } = await extractFirstFrame(file);
+
+          // 创建新的 File 对象（从视频提取的图片）
+          const imageName = file.name.replace(/\.[^/.]+$/, '') + '_第一帧.jpg';
+          const imageFile = new File([blob], imageName, { type: 'image/jpeg' });
+
+          newImages.push({
+            id: Math.random().toString(36).substr(2, 9),
+            name: imageName,
+            file: imageFile,
+            preview: previewUrl,
+            supplementPrompt: '',
+            generatedPrompt: '',
+            isProcessing: false
+          });
+        } catch (error) {
+          console.error(`提取视频第一帧失败: ${file.name}`, error);
+          alert(`处理视频失败: ${file.name}\n${error instanceof Error ? error.message : '未知错误'}`);
+        }
+      }
+    }
+
     setImages(prev => [...prev, ...newImages]);
   };
 
@@ -491,7 +589,7 @@ const VideoPromptGenerator: React.FC = () => {
     setIsDragging(false);
 
     const files = Array.from(e.dataTransfer.files).filter(file =>
-      file.type.startsWith('image/')
+      file.type.startsWith('image/') || file.type.startsWith('video/')
     );
 
     if (files.length > 0) {
@@ -2405,19 +2503,19 @@ const VideoPromptGenerator: React.FC = () => {
               <Upload className="w-8 h-8 text-gray-400" />
               <div className="flex-1">
                 <p className="text-sm text-gray-700">
-                  拖拽图片到此处或点击上传
+                  拖拽图片或视频到此处或点击上传
                 </p>
                 <p className="text-xs text-gray-500">
-                  支持批量上传多张图片
+                  支持批量上传多张图片，视频将自动提取第一帧
                 </p>
               </div>
               <label className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 cursor-pointer transition-colors">
                 <Upload className="w-4 h-4" />
-                <span>选择图片</span>
+                <span>选择图片/视频</span>
                 <input
                   type="file"
                   multiple
-                  accept="image/*"
+                  accept="image/*,video/*"
                   onChange={handleFileSelect}
                   className="hidden"
                 />
