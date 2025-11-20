@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, BookOpen, ChevronDown, Users, RefreshCw, Link, Unlink, Video, Clock, Clipboard } from 'lucide-react';
+import { Upload, Download, Copy, Loader, Image as ImageIcon, FileText, Check, Languages, Edit3, Save, Link, Unlink, Video, Clock, Clipboard } from 'lucide-react';
 import { API_URL } from '../config/api';
 import JSZip from 'jszip';
 import {
@@ -23,6 +23,12 @@ import {
   pollTasksStatus as pollTasksStatusSora,
   regenerateTask as regenerateTaskSora
 } from '../services/soraTasksService';
+import { snapshotService } from '../services/snapshotService';
+import {
+  createVideoPrompt,
+  getSnapshotsWithPrompts,
+  getVideoPromptById
+} from '../services/videoPromptsService';
 
 interface ImagePrompt {
   id: string;
@@ -140,37 +146,26 @@ const SYSTEM_PROMPT = `# 身份和使命
 4.  **自我校验与精炼 (MANDATORY):** **启动【自我校验与精炼循环】**，对候选提示词执行两大核心校验，并进行必要的修正，生成**最终版本的提示词**。
 5.  **最终审查与输出:** 检查最终版本的提示词是否完全符合【输出格式】要求，然后交付成果。`;
 
-interface Script {
-  id: number;
-  name: string;
-  category?: string;
-  total_frames?: number;
-  isOwner?: boolean;
-  owner_name?: string;
-}
-
-interface ParsedScriptContent {
-  sequence: number;
-  prompt: string;
-  dynamicDescription?: string;
-  narration?: string;
-}
-
 const VideoPromptGenerator: React.FC = () => {
   const [images, setImages] = useState<ImagePrompt[]>([]);
   const [isProcessingAll, setIsProcessingAll] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [editingPrompts, setEditingPrompts] = useState<Set<string>>(new Set());
-  const [scripts, setScripts] = useState<Script[]>([]);
+
+  // Video prompts save/import states
+  const [showSavePromptModal, setShowSavePromptModal] = useState(false);
+  const [showImportPromptModal, setShowImportPromptModal] = useState(false);
+  const [workSnapshots, setWorkSnapshots] = useState<any[]>([]);
+  const [snapshotsWithPrompts, setSnapshotsWithPrompts] = useState<any[]>([]);
+  const [selectedPromptId, setSelectedPromptId] = useState<string>('');
+
+  // Script import states
+  const [showImportScriptModal, setShowImportScriptModal] = useState(false);
   const [selectedScriptId, setSelectedScriptId] = useState<string>('');
-  const [loadingScripts, setLoadingScripts] = useState(false);
-  const [scriptScope, setScriptScope] = useState<'mine' | 'system' | 'both'>('both');
-  const [showScriptSelector, setShowScriptSelector] = useState(false);
-  const [characterReplacements, setCharacterReplacements] = useState<{ [key: string]: string }>({});
-  const [showCharacterReplacer, setShowCharacterReplacer] = useState(false);
-  const [detectedCharacters, setDetectedCharacters] = useState<string[]>([]);
-  const [hasImportedFromScript, setHasImportedFromScript] = useState(false);
+  const [scriptScope, setScriptScope] = useState<'mine' | 'system'>('mine');
+  const [userScripts, setUserScripts] = useState<any[]>([]);
+  const [systemScripts, setSystemScripts] = useState<any[]>([]);
 
   // AI Model selection state (for prompt generation)
   const [selectedModel, setSelectedModel] = useState<AIModel>(() => {
@@ -228,120 +223,221 @@ const VideoPromptGenerator: React.FC = () => {
   const [modalVersionNumber, setModalVersionNumber] = useState<number>(1);
   const [modalPrompt, setModalPrompt] = useState<string>('');
 
-  // Load scripts when component mounts or scope changes
+  // Load work snapshots and video prompts when component mounts
   useEffect(() => {
-    if (images.length > 0) {
-      loadScripts();
-    }
-  }, [scriptScope, images.length]);
+    loadWorkSnapshots();
+    loadSnapshotsWithPrompts();
+    // Load scripts for import functionality
+    loadUserScripts();
+    loadSystemScripts();
+  }, []);
 
-  // Load scripts from API
-  const loadScripts = async () => {
-    setLoadingScripts(true);
+  // Load user scripts
+  const loadUserScripts = async () => {
     try {
       const token = localStorage.getItem('token');
-      const requests = [];
+      if (!token) return;
 
-      if (scriptScope === 'mine' || scriptScope === 'both') {
-        requests.push(
-          fetch(`${API_URL}/scripts?scope=mine`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          })
-        );
-      }
-
-      if (scriptScope === 'system' || scriptScope === 'both') {
-        requests.push(
-          fetch(`${API_URL}/scripts?scope=system`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          })
-        );
-      }
-
-      const responses = await Promise.all(requests);
-      const allScripts: Script[] = [];
-
-      for (const response of responses) {
-        if (response.ok) {
-          const data = await response.json();
-          allScripts.push(...(data.scripts || []));
+      const response = await fetch(`${API_URL}/scripts?scope=mine`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
         }
-      }
+      });
 
-      setScripts(allScripts);
+      if (response.ok) {
+        const data = await response.json();
+        const scriptsData = data.scripts?.results || data.scripts || [];
+        setUserScripts(scriptsData);
+      }
     } catch (error) {
-      console.error('Failed to load scripts:', error);
-    } finally {
-      setLoadingScripts(false);
+      console.error('Failed to load user scripts:', error);
     }
   };
 
-  // Import script data to supplement prompts
-  const importScriptData = async () => {
-    if (!selectedScriptId) return;
-
+  // Load system scripts
+  const loadSystemScripts = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/scripts/${selectedScriptId}/parsed`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      if (!token) return;
+
+      const response = await fetch(`${API_URL}/scripts?scope=system`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to load script data');
+      if (response.ok) {
+        const data = await response.json();
+        const scriptsData = data.scripts?.results || data.scripts || [];
+        setSystemScripts(scriptsData);
+      }
+    } catch (error) {
+      console.error('Failed to load system scripts:', error);
+    }
+  };
+
+  // Load work snapshots for save functionality
+  const loadWorkSnapshots = async () => {
+    try {
+      const snapshots = await snapshotService.getSnapshots();
+      setWorkSnapshots(snapshots);
+    } catch (error) {
+      console.error('Failed to load work snapshots:', error);
+    }
+  };
+
+  // Load snapshots with video prompts for import functionality
+  const loadSnapshotsWithPrompts = async () => {
+    try {
+      const snapshots = await getSnapshotsWithPrompts();
+      setSnapshotsWithPrompts(snapshots);
+    } catch (error) {
+      console.error('Failed to load snapshots with prompts:', error);
+    }
+  };
+
+  // Handle save video prompts
+  const handleSaveVideoPrompts = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const snapshotId = parseInt(formData.get('snapshotId') as string);
+    const promptName = formData.get('promptName') as string;
+
+    // Collect all prompts data
+    const promptsData = images
+      .filter(img => img.generatedPrompt)
+      .map(img => ({
+        generatedPrompt: img.generatedPrompt,
+        translatedPrompt: img.translatedPrompt || ''
+      }));
+
+    if (promptsData.length === 0) {
+      alert('没有可保存的提示词');
+      return;
+    }
+
+    try {
+      await createVideoPrompt({ snapshotId, promptName, promptsData });
+      alert('保存成功！');
+      setShowSavePromptModal(false);
+      // Reload snapshots with prompts
+      loadSnapshotsWithPrompts();
+    } catch (error) {
+      console.error('Failed to save video prompts:', error);
+      alert('保存失败，请重试');
+    }
+  };
+
+  // Handle import video prompts
+  const handleImportVideoPrompts = async () => {
+    if (!selectedPromptId) {
+      alert('请选择要导入的提示词');
+      return;
+    }
+
+    try {
+      const promptData = await getVideoPromptById(parseInt(selectedPromptId));
+      const currentImageCount = images.length;
+      const promptCount = promptData.promptsData.length;
+
+      // Check if counts match
+      if (currentImageCount !== promptCount) {
+        const minCount = Math.min(currentImageCount, promptCount);
+        const confirmed = window.confirm(
+          `当前有${currentImageCount}张图片，导入的prompts有${promptCount}条，将按顺序导入前${minCount}条，是否继续？`
+        );
+        if (!confirmed) return;
       }
 
-      const data = await response.json();
-      const parsedContent: ParsedScriptContent[] = data.parsed_content || [];
-
-      // Update images with dynamic descriptions from script
+      // Import prompts sequentially
       setImages(prev => prev.map((img, index) => {
-        const scriptFrame = parsedContent[index];
-        if (scriptFrame && scriptFrame.dynamicDescription) {
-          // 同时导入到"补充提示"和"生成的提示词"两个文本框
+        if (index < promptData.promptsData.length) {
+          const promptItem = promptData.promptsData[index];
           return {
             ...img,
-            supplementPrompt: scriptFrame.dynamicDescription,
-            generatedPrompt: scriptFrame.dynamicDescription
+            generatedPrompt: promptItem.generatedPrompt,
+            translatedPrompt: promptItem.translatedPrompt || ''
           };
         }
         return img;
       }));
 
-      // 标记已从脚本导入
-      setHasImportedFromScript(true);
+      alert('导入成功！');
+      setShowImportPromptModal(false);
+      setSelectedPromptId('');
+    } catch (error) {
+      console.error('Failed to import video prompts:', error);
+      alert('导入失败，请重试');
+    }
+  };
 
-      // 检测角色名称（角色A、角色B、角色C等）
-      const characters = new Set<string>();
-      parsedContent.forEach(frame => {
-        if (frame.dynamicDescription) {
-          // 匹配角色A、角色B、角色C等模式
-          const matches = frame.dynamicDescription.match(/角色[A-Z]/g);
-          if (matches) {
-            matches.forEach(match => characters.add(match));
-          }
+  // Handle import script dynamic description
+  const handleImportScriptDynamicDescription = async () => {
+    if (!selectedScriptId) {
+      alert('请选择要导入的脚本');
+      return;
+    }
+
+    try {
+      // Fetch script details with parsed_content
+      const response = await fetch(`${API_URL}/scripts/${selectedScriptId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
 
-      if (characters.size > 0) {
-        const sortedCharacters = Array.from(characters).sort();
-        setDetectedCharacters(sortedCharacters);
-        // 初始化替换映射
-        const initialReplacements: { [key: string]: string } = {};
-        sortedCharacters.forEach(char => {
-          initialReplacements[char] = '';
-        });
-        setCharacterReplacements(initialReplacements);
-        setShowCharacterReplacer(true);
+      if (!response.ok) {
+        throw new Error('Failed to fetch script');
       }
 
-      // Close selector after import
-      setShowScriptSelector(false);
-      setSelectedScriptId('');
+      const data = await response.json();
+      const script = data.script;
 
-      alert(`已导入脚本「${scripts.find(s => s.id === parseInt(selectedScriptId))?.name}」的动态过程描述`);
+      if (!script.parsed_content || script.parsed_content.length === 0) {
+        alert('该脚本没有可导入的内容');
+        return;
+      }
+
+      const imageCount = images.length;
+      const scriptFrameCount = script.parsed_content.length;
+
+      // Check if counts match
+      if (imageCount !== scriptFrameCount) {
+        const minCount = Math.min(imageCount, scriptFrameCount);
+        const confirmed = window.confirm(
+          `当前有${imageCount}张图片，脚本有${scriptFrameCount}个分镜，将按顺序导入前${minCount}条动态描述，是否继续？`
+        );
+        if (!confirmed) return;
+      }
+
+      // Check if any existing prompts will be overwritten
+      const hasExistingPrompts = images.some(img => img.generatedPrompt);
+      if (hasExistingPrompts) {
+        const confirmed = window.confirm('将覆盖已有的提示词，是否继续？');
+        if (!confirmed) return;
+      }
+
+      // Import dynamic descriptions sequentially
+      setImages(prev => prev.map((img, index) => {
+        if (index < script.parsed_content.length) {
+          const frame = script.parsed_content[index];
+          // Only update if dynamicDescription exists, otherwise keep original
+          if (frame.dynamicDescription) {
+            return {
+              ...img,
+              generatedPrompt: frame.dynamicDescription
+            };
+          }
+        }
+        return img;
+      }));
+
+      alert('导入成功！');
+      setShowImportScriptModal(false);
+      setSelectedScriptId('');
     } catch (error) {
-      console.error('Failed to import script data:', error);
-      alert('导入脚本数据失败');
+      console.error('Failed to import script dynamic description:', error);
+      alert('导入失败，请重试');
     }
   };
 
@@ -349,10 +445,6 @@ const VideoPromptGenerator: React.FC = () => {
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     processFiles(files);
-    // Show script selector after adding images
-    if (files.length > 0) {
-      setShowScriptSelector(true);
-    }
   };
 
   // Process files (used by both file input and drag-drop)
@@ -376,12 +468,6 @@ const VideoPromptGenerator: React.FC = () => {
       isProcessing: false
     }));
     setImages(prev => [...prev, ...newImages]);
-    // Show script selector after adding images
-    if (files.length > 0) {
-      setShowScriptSelector(true);
-      // 重置导入标记
-      setHasImportedFromScript(false);
-    }
   };
 
   // Handle drag over
@@ -461,7 +547,7 @@ const VideoPromptGenerator: React.FC = () => {
         }
       };
 
-      const geminiModel = selectedModel === 'gemini-flash' ? 'gemini-2.5-flash' : 'gemini-2.5-pro';
+      const geminiModel = selectedModel === 'gemini-flash' ? 'gemini-2.5-flash' : 'gemini-3-pro-preview';
 
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`,
@@ -553,7 +639,7 @@ const VideoPromptGenerator: React.FC = () => {
         }
       };
 
-      const geminiModel = selectedModel === 'gemini-flash' ? 'gemini-2.5-flash' : 'gemini-2.5-pro';
+      const geminiModel = selectedModel === 'gemini-flash' ? 'gemini-2.5-flash' : 'gemini-3-pro-preview';
 
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent`,
@@ -1063,9 +1149,8 @@ const VideoPromptGenerator: React.FC = () => {
       // Skip tail frames (have upLink but no downLink)
       if (image.upLink && !image.downLink) continue;
 
-      // 如果没有从脚本导入，并且已有生成内容，则跳过
-      // 如果从脚本导入了，则强制重新生成（使用补充提示）
-      if (!hasImportedFromScript && image.generatedPrompt) continue;
+      // 如果已有生成内容，则跳过
+      if (image.generatedPrompt) continue;
 
       const isPaired = !!image.downLink;
       const tailImage = isPaired ? images.find(img => img.id === image.downLink) : null;
@@ -1125,10 +1210,6 @@ const VideoPromptGenerator: React.FC = () => {
     }
 
     setIsProcessingAll(false);
-    // 处理完成后重置标记
-    if (hasImportedFromScript) {
-      setHasImportedFromScript(false);
-    }
 
     // 显示完成提示
     const processedCount = images.filter(img => {
@@ -1227,42 +1308,6 @@ const VideoPromptGenerator: React.FC = () => {
     setImages(prev => prev.filter(img => img.id !== id));
   };
 
-  // Batch replace characters in all prompts
-  const handleBatchReplaceCharacters = () => {
-    // 检查是否所有角色都有替换值
-    const hasEmptyValues = Object.values(characterReplacements).some(value => !value.trim());
-    if (hasEmptyValues) {
-      alert('请为所有角色设置替换名称');
-      return;
-    }
-
-    // 批量替换所有图片的提示词
-    setImages(prev => prev.map(img => {
-      let updatedSupplementPrompt = img.supplementPrompt;
-      let updatedGeneratedPrompt = img.generatedPrompt;
-
-      // 替换每个角色
-      Object.entries(characterReplacements).forEach(([oldChar, newChar]) => {
-        if (newChar.trim()) {
-          const regex = new RegExp(oldChar, 'g');
-          updatedSupplementPrompt = updatedSupplementPrompt.replace(regex, newChar);
-          updatedGeneratedPrompt = updatedGeneratedPrompt.replace(regex, newChar);
-        }
-      });
-
-      return {
-        ...img,
-        supplementPrompt: updatedSupplementPrompt,
-        generatedPrompt: updatedGeneratedPrompt
-      };
-    }));
-
-    // 关闭替换面板
-    setShowCharacterReplacer(false);
-    // 标记内容已修改，需要重新生成
-    setHasImportedFromScript(true);
-    alert('角色替换完成！');
-  };
 
   /**
    * Upload images to R2 and get URLs
@@ -2203,7 +2248,7 @@ const VideoPromptGenerator: React.FC = () => {
                   }}
                   className="mr-1.5 w-4 h-4 text-blue-600"
                 />
-                <span className="text-sm text-gray-700">Gemini Pro</span>
+                <span className="text-sm text-gray-700">Gemini 3</span>
               </label>
               <label className="flex items-center cursor-pointer ml-3">
                 <input
@@ -2388,6 +2433,45 @@ const VideoPromptGenerator: React.FC = () => {
             {images.length > 0 && (
               <div className="flex gap-3">
                 <button
+                  onClick={() => setShowSavePromptModal(true)}
+                  disabled={images.filter(img => img.generatedPrompt).length === 0}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
+                    images.filter(img => img.generatedPrompt).length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-indigo-500 text-white hover:bg-indigo-600'
+                  }`}
+                >
+                  <Save className="w-4 h-4" />
+                  保存Prompt
+                </button>
+
+                <button
+                  onClick={() => setShowImportPromptModal(true)}
+                  disabled={images.length === 0}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
+                    images.length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-teal-500 text-white hover:bg-teal-600'
+                  }`}
+                >
+                  <Upload className="w-4 h-4" />
+                  导入图转视频Prompt
+                </button>
+
+                <button
+                  onClick={() => setShowImportScriptModal(true)}
+                  disabled={images.length === 0}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
+                    images.length === 0
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-purple-500 text-white hover:bg-purple-600'
+                  }`}
+                >
+                  <FileText className="w-4 h-4" />
+                  导入脚本动态描述
+                </button>
+
+                <button
                   onClick={handlePastePrompts}
                   disabled={images.length === 0}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
@@ -2417,7 +2501,7 @@ const VideoPromptGenerator: React.FC = () => {
                   ) : (
                     <>
                       <FileText className="w-4 h-4" />
-                      {hasImportedFromScript ? '使用AI优化提示词' : '一键生成 Prompt'}
+                      一键生成 Prompt
                     </>
                   )}
                 </button>
@@ -2498,160 +2582,6 @@ const VideoPromptGenerator: React.FC = () => {
           )}
         </div>
 
-        {/* Script Selector */}
-        {images.length > 0 && showScriptSelector && (
-          <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                <BookOpen className="w-4 h-4" />
-                导入脚本数据
-              </h3>
-              <button
-                onClick={() => setShowScriptSelector(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="flex gap-3">
-              {/* Scope selector */}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setScriptScope('mine')}
-                  className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
-                    scriptScope === 'mine'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  我的脚本
-                </button>
-                <button
-                  onClick={() => setScriptScope('system')}
-                  className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
-                    scriptScope === 'system'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  系统库
-                </button>
-                <button
-                  onClick={() => setScriptScope('both')}
-                  className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${
-                    scriptScope === 'both'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  全部
-                </button>
-              </div>
-
-              {/* Script dropdown */}
-              <div className="flex-1 relative">
-                <select
-                  value={selectedScriptId}
-                  onChange={(e) => setSelectedScriptId(e.target.value)}
-                  className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 appearance-none pr-8"
-                  disabled={loadingScripts}
-                >
-                  <option value="">选择脚本...</option>
-                  {scripts.map(script => (
-                    <option key={script.id} value={script.id}>
-                      {script.name}
-                      {script.category && ` [${script.category}]`}
-                      {!script.isOwner && script.owner_name && ` (${script.owner_name})`}
-                      {script.total_frames && ` - ${script.total_frames}帧`}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
-
-              {/* Import button */}
-              <button
-                onClick={importScriptData}
-                disabled={!selectedScriptId || loadingScripts}
-                className={`px-4 py-1.5 text-sm rounded-lg transition-colors ${
-                  selectedScriptId && !loadingScripts
-                    ? 'bg-green-500 text-white hover:bg-green-600'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
-              >
-                导入
-              </button>
-            </div>
-
-            <p className="text-xs text-gray-500 mt-2">
-              选择脚本后，将导入第三列「动态过程描述」到各图片的补充提示中
-            </p>
-          </div>
-        )}
-
-        {/* Character Replacer */}
-        {showCharacterReplacer && detectedCharacters.length > 0 && (
-          <div className="bg-white rounded-lg shadow-sm p-4 mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                <Users className="w-4 h-4" />
-                批量替换角色名称
-              </h3>
-              <button
-                onClick={() => setShowCharacterReplacer(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-2 mb-3">
-              {detectedCharacters.map(character => (
-                <div key={character} className="flex items-center gap-3">
-                  <span className="text-sm text-gray-700 w-20">{character}：</span>
-                  <input
-                    type="text"
-                    value={characterReplacements[character] || ''}
-                    onChange={(e) => setCharacterReplacements(prev => ({
-                      ...prev,
-                      [character]: e.target.value
-                    }))}
-                    placeholder={`输入${character}的真实名称（如：男人、女孩）`}
-                    className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  // 清空所有输入
-                  const cleared: { [key: string]: string } = {};
-                  detectedCharacters.forEach(char => {
-                    cleared[char] = '';
-                  });
-                  setCharacterReplacements(cleared);
-                }}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800"
-              >
-                清空
-              </button>
-              <button
-                onClick={handleBatchReplaceCharacters}
-                className="flex items-center gap-2 px-4 py-1.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-              >
-                <RefreshCw className="w-4 h-4" />
-                批量替换
-              </button>
-            </div>
-
-            <p className="text-xs text-gray-500 mt-2">
-              将所有提示词中的角色占位符替换为真实名称
-            </p>
-          </div>
-        )}
 
         {/* Image Cards */}
         <div className="grid grid-cols-1 gap-3">
@@ -3133,6 +3063,233 @@ const VideoPromptGenerator: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Save Prompt Modal */}
+      {showSavePromptModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">保存图转视频Prompt</h3>
+            {workSnapshots.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500 mb-4">请先在 workspace 创建工作记录</p>
+                <button
+                  onClick={() => setShowSavePromptModal(false)}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                >
+                  关闭
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleSaveVideoPrompts}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      选择工作记录
+                    </label>
+                    <select
+                      name="snapshotId"
+                      required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      {workSnapshots.map((snapshot: any) => {
+                        const snapshotTime = new Date(snapshot.createdAt).toLocaleString('zh-CN');
+                        const snapshotName = snapshot.customName || snapshot.snapshotName;
+                        return (
+                          <option key={snapshot.id} value={snapshot.id}>
+                            {snapshotTime} - {snapshotName}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Prompt名称
+                    </label>
+                    <input
+                      type="text"
+                      name="promptName"
+                      required
+                      placeholder="例如：第一版提示词"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={() => setShowSavePromptModal(false)}
+                    className="flex-1 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600"
+                  >
+                    保存
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Import Prompt Modal */}
+      {showImportPromptModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">导入图转视频Prompt</h3>
+            {snapshotsWithPrompts.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500 mb-4">没有可导入的提示词记录</p>
+                <button
+                  onClick={() => setShowImportPromptModal(false)}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                >
+                  关闭
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    选择要导入的Prompt
+                  </label>
+                  <select
+                    value={selectedPromptId}
+                    onChange={(e) => setSelectedPromptId(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+                  >
+                    <option value="">请选择...</option>
+                    {snapshotsWithPrompts.map(snapshot =>
+                      snapshot.prompts.map((prompt: any) => {
+                        const snapshotTime = new Date(snapshot.createdAt).toLocaleString('zh-CN');
+                        const snapshotName = snapshot.customName || snapshot.snapshotName;
+                        const displayText = `${snapshotTime} - ${snapshotName} - ${prompt.promptName}`;
+                        return (
+                          <option key={prompt.promptId} value={prompt.promptId}>
+                            {displayText}
+                          </option>
+                        );
+                      })
+                    )}
+                  </select>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <button
+                    onClick={() => {
+                      setShowImportPromptModal(false);
+                      setSelectedPromptId('');
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleImportVideoPrompts}
+                    disabled={!selectedPromptId}
+                    className={`flex-1 px-4 py-2 rounded-lg ${
+                      selectedPromptId
+                        ? 'bg-teal-500 text-white hover:bg-teal-600'
+                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    }`}
+                  >
+                    导入
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Import Script Modal */}
+      {showImportScriptModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">导入脚本动态描述</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  脚本类型
+                </label>
+                <div className="flex gap-4 mb-3">
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      name="scriptScope"
+                      value="mine"
+                      checked={scriptScope === 'mine'}
+                      onChange={(e) => {
+                        setScriptScope(e.target.value as 'mine' | 'system');
+                        setSelectedScriptId('');
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-700">我的脚本</span>
+                  </label>
+                  <label className="flex items-center cursor-pointer">
+                    <input
+                      type="radio"
+                      name="scriptScope"
+                      value="system"
+                      checked={scriptScope === 'system'}
+                      onChange={(e) => {
+                        setScriptScope(e.target.value as 'mine' | 'system');
+                        setSelectedScriptId('');
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-700">系统库</span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  选择脚本
+                </label>
+                <select
+                  value={selectedScriptId}
+                  onChange={(e) => setSelectedScriptId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                >
+                  <option value="">请选择...</option>
+                  {(scriptScope === 'mine' ? userScripts : systemScripts).map(script => (
+                    <option key={script.id} value={script.id}>
+                      {script.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowImportScriptModal(false);
+                    setSelectedScriptId('');
+                    setScriptScope('mine');
+                  }}
+                  className="flex-1 px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleImportScriptDynamicDescription}
+                  disabled={!selectedScriptId}
+                  className={`flex-1 px-4 py-2 rounded-lg ${
+                    selectedScriptId
+                      ? 'bg-purple-500 text-white hover:bg-purple-600'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  导入
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

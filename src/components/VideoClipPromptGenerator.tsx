@@ -445,6 +445,159 @@ const VideoClipPromptGenerator: React.FC = () => {
     alert('已复制到剪贴板');
   };
 
+  // 单条重新生成 Prompt
+  const regenerateSinglePrompt = async (clipId: string) => {
+    // 找到目标 clip
+    const clipIndex = videoClips.findIndex(c => c.id === clipId);
+    if (clipIndex === -1) {
+      alert('未找到该视频片段');
+      return;
+    }
+
+    const targetClip = videoClips[clipIndex];
+
+    // 标记该 clip 为处理中,清除旧的错误和 prompt
+    setVideoClips(prev => prev.map(c =>
+      c.id === clipId
+        ? { ...c, status: 'processing' as const, error: undefined, errorDetails: undefined, prompt: undefined }
+        : c
+    ));
+
+    try {
+      const token = localStorage.getItem('token');
+      const formData = new FormData();
+
+      // 添加视频文件
+      formData.append('video_0', targetClip.file);
+
+      // 处理尾帧
+      let endFrameBlob: Blob | null = null;
+
+      // 如果之前提取成功,尝试从 preview URL 重新获取
+      if (targetClip.endFrameStatus === 'success' && targetClip.endFramePreview) {
+        try {
+          const response = await fetch(targetClip.endFramePreview);
+          endFrameBlob = await response.blob();
+          console.log(`[RegenerateSingle] Reused existing end frame from preview URL`);
+        } catch (err) {
+          console.warn(`[RegenerateSingle] Failed to fetch existing end frame, will re-extract:`, err);
+        }
+      }
+
+      // 如果没有可用的尾帧,尝试重新提取
+      if (!endFrameBlob) {
+        try {
+          const { blob, previewUrl } = await extractLastFrame(targetClip.file);
+          endFrameBlob = blob;
+          console.log(`[RegenerateSingle] Re-extracted end frame`);
+
+          // 更新尾帧状态
+          setVideoClips(prev => prev.map(c =>
+            c.id === clipId ? { ...c, endFrameStatus: 'success' as const, endFramePreview: previewUrl } : c
+          ));
+        } catch (error) {
+          console.error(`[RegenerateSingle] Failed to extract end frame:`, error);
+          // 尾帧提取失败不中断流程,继续处理
+        }
+      }
+
+      // 添加尾帧到 FormData
+      if (endFrameBlob) {
+        const videoFileName = targetClip.file.name.replace(/\.[^/.]+$/, '');
+        const endFrameFileName = `${videoFileName}_尾帧.jpg`;
+        formData.append('endFrame_0', endFrameBlob, endFrameFileName);
+      }
+
+      // 添加角色特征
+      const targetCharacterFeature = characterFeatures[clipIndex];
+      if (targetCharacterFeature) {
+        formData.append('characterFeatures', JSON.stringify([targetCharacterFeature]));
+      }
+
+      // 添加 provider 参数
+      formData.append('provider', geminiProvider);
+
+      console.log(`[RegenerateSingle] Sending request for clip ${targetClip.sceneId}`);
+
+      // 调用 API
+      const response = await fetch(`${API_URL}/video-clip-prompt/generate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // 更新结果
+      if (data.results && data.results.length > 0) {
+        const result = data.results[0];
+
+        if (result.status === 'success' && result.prompt) {
+          setVideoClips(prev => prev.map(c =>
+            c.id === clipId
+              ? { ...c, status: 'success' as const, prompt: result.prompt }
+              : c
+          ));
+          console.log(`[RegenerateSingle] Successfully regenerated prompt for ${targetClip.sceneId}`);
+        } else {
+          setVideoClips(prev => prev.map(c =>
+            c.id === clipId
+              ? {
+                ...c,
+                status: 'error' as const,
+                error: result.error || 'Unknown error',
+                errorDetails: result.rawResponse ? { rawResponse: result.rawResponse } : undefined
+              }
+              : c
+          ));
+          console.error(`[RegenerateSingle] Failed to regenerate prompt:`, result.error);
+        }
+      } else {
+        throw new Error('服务器返回数据格式错误');
+      }
+
+    } catch (error) {
+      console.error(`[RegenerateSingle] Error:`, error);
+      setVideoClips(prev => prev.map(c =>
+        c.id === clipId
+          ? {
+            ...c,
+            status: 'error' as const,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }
+          : c
+      ));
+      alert(`重新生成失败: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  // 复制所有 Prompt 为 JSON (与下载 JSON 内容相同)
+  const copyAllPromptsJson = () => {
+    const successClips = videoClips.filter(clip => clip.status === 'success' && clip.prompt);
+
+    if (successClips.length === 0) {
+      alert('没有可复制的 Prompt');
+      return;
+    }
+
+    const jsonData = successClips.map(clip => clip.prompt);
+    const jsonString = JSON.stringify(jsonData, null, 2);
+
+    navigator.clipboard.writeText(jsonString).then(() => {
+      alert('已复制到剪贴板');
+    }).catch(err => {
+      console.error('复制失败:', err);
+      alert('复制失败，请重试');
+    });
+  };
+
   // 下载所有 Prompt 为 JSON
   const downloadAllPrompts = () => {
     const successClips = videoClips.filter(clip => clip.status === 'success' && clip.prompt);
@@ -676,6 +829,14 @@ const VideoClipPromptGenerator: React.FC = () => {
                   )}
                 </button>
                 <button
+                  onClick={copyAllPromptsJson}
+                  className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 flex items-center gap-2"
+                  title="复制所有 Prompt (JSON格式)"
+                >
+                  <Copy className="w-4 h-4" />
+                  复制 JSON
+                </button>
+                <button
                   onClick={downloadAllPrompts}
                   className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 flex items-center gap-2"
                 >
@@ -735,6 +896,19 @@ const VideoClipPromptGenerator: React.FC = () => {
                     <div className="flex-grow">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="font-semibold">{clip.sceneId}</span>
+
+                        {/* 重新生成按钮 - 只在 success 或 error 状态显示 */}
+                        {(clip.status === 'success' || clip.status === 'error') && (
+                          <button
+                            onClick={() => regenerateSinglePrompt(clip.id)}
+                            disabled={isGenerating}
+                            className="text-xs px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                            title="重新生成此条 prompt"
+                          >
+                            重新生成
+                          </button>
+                        )}
+
                         {clip.status === 'processing' && (
                           <span className="text-blue-500 flex items-center gap-1">
                             <Loader className="w-4 h-4 animate-spin" />

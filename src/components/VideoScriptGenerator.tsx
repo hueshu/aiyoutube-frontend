@@ -549,7 +549,7 @@ const VideoScriptGenerator: React.FC = () => {
         text = await generateWithClaude(images, supplementPrompt);
       } else {
         // Use Gemini API (Flash or Pro)
-        const geminiModel = selectedModel === 'gemini-flash' ? 'gemini-2.5-flash' : 'gemini-2.5-pro';
+        const geminiModel = selectedModel === 'gemini-flash' ? 'gemini-2.5-flash' : 'gemini-3-pro-preview';
 
         const imageParts = await Promise.all(
           images.map(async (img) => ({
@@ -762,7 +762,7 @@ const VideoScriptGenerator: React.FC = () => {
                   : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
               }`}
             >
-              Gemini 2.5 Pro
+              Gemini 3
             </button>
             <button
               onClick={() => {
@@ -779,7 +779,7 @@ const VideoScriptGenerator: React.FC = () => {
             </button>
           </div>
           <p className="text-sm text-gray-500 mt-2">
-            当前模型：{selectedModel === 'gemini-flash' ? 'Gemini 2.5 Flash' : selectedModel === 'gemini-pro' ? 'Gemini 2.5 Pro' : 'Claude Sonnet 4.5'}
+            当前模型：{selectedModel === 'gemini-flash' ? 'Gemini 2.5 Flash' : selectedModel === 'gemini-pro' ? 'Gemini 3' : 'Claude Sonnet 4.5'}
           </p>
         </div>
 
