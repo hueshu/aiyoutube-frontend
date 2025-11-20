@@ -401,22 +401,42 @@ const VideoPromptGenerator: React.FC = () => {
         if (!confirmed) return;
       }
 
-      // Import prompts sequentially
-      setImages(prev => prev.map((img, index) => {
-        if (index < promptData.promptsData.length) {
-          const promptItem = promptData.promptsData[index];
-          return {
-            ...img,
-            generatedPrompt: promptItem.generatedPrompt,
-            translatedPrompt: promptItem.translatedPrompt || ''
-          };
+      // 检测角色占位符
+      const allCharacters = new Set<string>();
+      promptData.promptsData.forEach((promptItem: any) => {
+        if (promptItem.generatedPrompt) {
+          const chars = detectCharacterPlaceholders(promptItem.generatedPrompt);
+          chars.forEach(c => allCharacters.add(c));
         }
-        return img;
-      }));
+      });
 
-      alert('导入成功！');
-      setShowImportPromptModal(false);
-      setSelectedPromptId('');
+      if (allCharacters.size > 0) {
+        // 有角色占位符，显示对话框
+        const charactersArray = Array.from(allCharacters).sort();
+        const initialMappings: Record<string, string> = {};
+
+        // 预填充历史映射
+        charactersArray.forEach(char => {
+          if (savedCharacterMappings[char]) {
+            initialMappings[char] = savedCharacterMappings[char];
+          }
+        });
+
+        setDetectedCharacters(charactersArray);
+        setCharacterDescriptions(initialMappings);
+        setPendingImportData({
+          type: 'video-prompts',
+          data: promptData.promptsData
+        });
+        setShowCharacterMappingModal(true);
+        setShowImportPromptModal(false);
+        setSelectedPromptId('');
+      } else {
+        // 没有角色占位符，直接导入
+        applyVideoPromptsData(promptData.promptsData, {});
+        setShowImportPromptModal(false);
+        setSelectedPromptId('');
+      }
     } catch (error) {
       console.error('Failed to import video prompts:', error);
       alert('导入失败，请重试');
@@ -565,6 +585,34 @@ const VideoPromptGenerator: React.FC = () => {
       : `成功导入${minCount}条Prompt数据`);
   };
 
+  // 应用图转视频 prompt 数据（新增函数 - 处理从数据库导入的 prompts）
+  const applyVideoPromptsData = (promptsData: any[], mappings: Record<string, string>) => {
+    const minCount = Math.min(promptsData.length, images.length);
+
+    setImages(prev => prev.map((img, index) => {
+      if (index < promptsData.length) {
+        const promptItem = promptsData[index];
+        const original = promptItem.generatedPrompt;
+        const replaced = Object.keys(mappings).length > 0
+          ? replaceCharacters(original, mappings)
+          : original;
+
+        return {
+          ...img,
+          originalPrompt: Object.keys(mappings).length > 0 ? original : undefined,
+          generatedPrompt: replaced,
+          translatedPrompt: promptItem.translatedPrompt || '',
+          characterMappings: Object.keys(mappings).length > 0 ? mappings : undefined
+        };
+      }
+      return img;
+    }));
+
+    alert(minCount === images.length
+      ? '导入成功！'
+      : `成功导入${minCount}条数据`);
+  };
+
   // 处理角色映射确认
   const handleCharacterMappingConfirm = () => {
     if (!pendingImportData) return;
@@ -577,6 +625,9 @@ const VideoPromptGenerator: React.FC = () => {
     } else if (type === 'paste') {
       // 处理粘贴 prompt 导入（JSON 格式）
       applyPasteDataFromJson(data, characterDescriptions);
+    } else if (type === 'video-prompts') {
+      // 处理图转视频 prompt 导入
+      applyVideoPromptsData(data, characterDescriptions);
     }
 
     // 清理状态
