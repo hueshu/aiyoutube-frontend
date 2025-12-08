@@ -1485,15 +1485,67 @@ const StoryboardWorkspace: React.FC = () => {
   };
 
 
+  /**
+   * Convert any image blob to standard JPEG format
+   * This ensures macOS can preview downloaded images correctly
+   */
+  const convertToJpeg = async (blob: Blob): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = document.createElement('img');
+      const url = URL.createObjectURL(blob);
+
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            URL.revokeObjectURL(url);
+            reject(new Error('Canvas context not available'));
+            return;
+          }
+
+          // Draw image on canvas
+          ctx.drawImage(img, 0, 0);
+
+          // Convert to JPEG blob with 95% quality
+          canvas.toBlob((jpegBlob) => {
+            URL.revokeObjectURL(url);
+            if (jpegBlob) {
+              resolve(jpegBlob);
+            } else {
+              reject(new Error('JPEG conversion failed'));
+            }
+          }, 'image/jpeg', 0.95);
+        } catch (error) {
+          URL.revokeObjectURL(url);
+          reject(error);
+        }
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('Image load failed'));
+      };
+
+      img.src = url;
+    });
+  };
+
   const downloadImage = async (imageUrl: string, frameNumber: number) => {
     try {
       // Fetch the image as blob
       const response = await fetch(imageUrl);
       const blob = await response.blob();
-      
+
+      // Convert to standard JPEG format
+      const jpegBlob = await convertToJpeg(blob);
+
       // Create blob URL
-      const blobUrl = URL.createObjectURL(blob);
-      
+      const blobUrl = URL.createObjectURL(jpegBlob);
+
       // Create download link
       const a = document.createElement('a');
       a.href = blobUrl;
@@ -1503,7 +1555,7 @@ const StoryboardWorkspace: React.FC = () => {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      
+
       // Clean up blob URL
       URL.revokeObjectURL(blobUrl);
     } catch (error) {
@@ -1573,8 +1625,11 @@ const StoryboardWorkspace: React.FC = () => {
 
               const blob = await response.blob();
 
+              // Convert to standard JPEG format
+              const jpegBlob = await convertToJpeg(blob);
+
               // Add to zip
-              zip.file(filename, blob);
+              zip.file(filename, jpegBlob);
 
               processedCount++;
               // Update progress
@@ -1602,8 +1657,11 @@ const StoryboardWorkspace: React.FC = () => {
 
             const blob = await response.blob();
 
+            // Convert to standard JPEG format
+            const jpegBlob = await convertToJpeg(blob);
+
             // Add to zip
-            zip.file(filename, blob);
+            zip.file(filename, jpegBlob);
 
             processedCount++;
             // Update progress

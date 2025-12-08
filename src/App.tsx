@@ -17,6 +17,7 @@ import VideoPromptGenerator from './components/VideoPromptGenerator'
 import VideoScriptGenerator from './components/VideoScriptGenerator'
 import CharacterImage from './components/CharacterImage'
 import VideoClipPromptGenerator from './components/VideoClipPromptGenerator'
+import SingleVideoGenerator from './components/SingleVideoGenerator'
 
 function App() {
   const { isAuthenticated, isLoading, initializeAuth, user } = useAuthStore()
@@ -62,6 +63,7 @@ function App() {
             <Route path="/character-image" element={<CharacterImage />} />
             <Route path="/projects" element={<ProjectsManager />} />
             <Route path="/video-script-generator" element={<VideoScriptGenerator />} />
+            <Route path="/single-video-generator" element={<SingleVideoGenerator />} />
             <Route path="/video-prompt" element={<VideoPromptGenerator />} />
             <Route path="/video-clip-prompt" element={<VideoClipPromptGenerator />} />
             <Route path="/logs" element={<LogsPage />} />

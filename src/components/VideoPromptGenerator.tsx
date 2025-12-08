@@ -2709,11 +2709,6 @@ const VideoPromptGenerator: React.FC = () => {
                   onChange={(e) => {
                     setSelectedVideoModel(e.target.value as VideoModel);
                     localStorage.setItem('videoModel', e.target.value);
-                    // When selecting Veo, force aspectRatio to 16x9
-                    if (e.target.value === 'veo-3.1-fast') {
-                      setSelectedAspectRatio('16x9');
-                      localStorage.setItem('aspectRatio', '16x9');
-                    }
                   }}
                   className="mr-1.5 w-4 h-4 text-purple-600"
                 />
@@ -2735,14 +2730,8 @@ const VideoPromptGenerator: React.FC = () => {
               </label>
             </div>
 
-            {/* Aspect Ratio Selector (Veo only shows 16x9, Sora shows both) */}
-            {selectedVideoModel === 'veo-3.1-fast' && (
-              <div className="flex items-center gap-2 bg-white rounded-lg shadow-sm px-4 py-2 border border-gray-200">
-                <span className="text-sm font-medium text-gray-700 min-w-[80px]">视频比例:</span>
-                <span className="text-sm text-gray-700">16x9 (横屏)</span>
-              </div>
-            )}
-            {selectedVideoModel === 'sora-2-hd' && (
+            {/* Aspect Ratio Selector (Veo and Sora both support 16x9 and 9x16) */}
+            {(selectedVideoModel === 'veo-3.1-fast' || selectedVideoModel === 'sora-2-hd') && (
               <div className="flex items-center gap-2 bg-white rounded-lg shadow-sm px-4 py-2 border border-gray-200">
                 <span className="text-sm font-medium text-gray-700 min-w-[80px]">视频比例:</span>
                 <label className="flex items-center cursor-pointer">

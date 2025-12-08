@@ -44,7 +44,7 @@ export interface SoraTask {
  */
 export async function submitBatchTasks(
   tasks: Array<{
-    imageUrl: string;
+    imageUrl?: string;  // Optional: support text-only generation
     promptCn: string;
     promptEn?: string;
   }>,
