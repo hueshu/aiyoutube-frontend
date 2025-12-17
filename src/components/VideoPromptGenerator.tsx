@@ -1535,7 +1535,12 @@ const VideoPromptGenerator: React.FC = () => {
   // Update generated prompt
   const updateGeneratedPrompt = (id: string, value: string) => {
     setImages(prev => prev.map(img =>
-      img.id === id ? { ...img, generatedPrompt: value } : img
+      img.id === id ? {
+        ...img,
+        generatedPrompt: value,
+        originalPrompt: undefined,      // 清除原始 prompt，保存时使用修改后的版本
+        characterMappings: undefined    // 清除角色映射
+      } : img
     ));
   };
 
@@ -1766,10 +1771,16 @@ const VideoPromptGenerator: React.FC = () => {
       console.log('[DEBUG] Submission result:', { taskIds });
 
       // Map image IDs to task IDs
+      // IMPORTANT: Must match the same filtering logic as task construction above
       let taskIndex = 0;
       const newMapping = new Map(videoTasks);
       for (const img of images) {
         if (img.upLink && !img.downLink) continue; // Skip tail frames
+
+        // Check if image was successfully uploaded (same check as task construction)
+        const uploadedImg = uploadedImages.find(u => u.id === img.id);
+        if (!uploadedImg) continue; // Skip images that failed to upload
+
         if (taskIndex < taskIds.length) {
           const existingTasks = newMapping.get(img.id) || [];
           newMapping.set(img.id, [...existingTasks, taskIds[taskIndex]]);
