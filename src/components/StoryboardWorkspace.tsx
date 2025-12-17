@@ -63,7 +63,7 @@ const StoryboardWorkspace: React.FC = () => {
   const [scriptFrames, setScriptFrames] = useState<ScriptFrame[]>([]);
   const [characterMapping, setCharacterMapping] = useState<Record<string, number>>({});
   const [imageSize, setImageSize] = useState<string>('');
-  const [model, setModel] = useState<'sora_image' | 'gemini-2.5-flash-image-preview' | 'gemini-2.5-flash-image' | 'seedream-4.0' | 'doubao-seedream-4-0-250828' | ''>('');
+  const [model, setModel] = useState<'sora_image' | 'gemini-2.5-flash-image-preview' | 'gemini-2.5-flash-image' | 'gemini-3-pro-image-preview' | 'seedream-4.0' | 'doubao-seedream-4-0-250828' | ''>('');
   const [loading, setLoading] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number; currentFrame: number } | null>(null);
   const [editingRow, setEditingRow] = useState<number | null>(null);
@@ -753,7 +753,7 @@ const StoryboardWorkspace: React.FC = () => {
       console.log('Character image URLs to send:', characterImageUrls);
 
       // For Gemini model, pad character images to target ratio
-      if ((model === 'gemini-2.5-flash-image-preview' || model === 'gemini-2.5-flash-image') && imageSize && characterImageUrls.length > 0) {
+      if ((model === 'gemini-2.5-flash-image-preview' || model === 'gemini-2.5-flash-image' || model === 'gemini-3-pro-image-preview') && imageSize && characterImageUrls.length > 0) {
         console.log('Padding character images for Gemini to ratio:', imageSize);
         try {
           const paddedUrls = await Promise.all(
@@ -772,7 +772,7 @@ const StoryboardWorkspace: React.FC = () => {
 
       // Fallback: If no character images and using Gemini, add ratio template
       let shouldAddGeminiInstruction = false;
-      if (characterImageUrls.length === 0 && (model === 'gemini-2.5-flash-image-preview' || model === 'gemini-2.5-flash-image') && imageSize) {
+      if (characterImageUrls.length === 0 && (model === 'gemini-2.5-flash-image-preview' || model === 'gemini-2.5-flash-image' || model === 'gemini-3-pro-image-preview') && imageSize) {
         const templateUrl = getRatioTemplateUrl(imageSize);
         if (templateUrl) {
           characterImageUrls.push(templateUrl);
@@ -793,7 +793,7 @@ const StoryboardWorkspace: React.FC = () => {
         prompt: finalPrompt,
         image_size: imageSize,  // Keep brackets for image size
         model: model,
-        model_type: model === 'gemini-2.5-flash-image' ? 'google' : 'yunwu'  // Add model_type parameter
+        model_type: (model === 'gemini-2.5-flash-image' || model === 'gemini-3-pro-image-preview') ? 'google' : 'yunwu'  // Add model_type parameter
       };
 
       // Add character images if available (including ratio template for Gemini)
@@ -1171,7 +1171,7 @@ const StoryboardWorkspace: React.FC = () => {
 
       // For Gemini model, pad all character images once before batch processing
       let paddedCharacterImages: Record<string, string> = {};
-      if ((model === 'gemini-2.5-flash-image-preview' || model === 'gemini-2.5-flash-image') && imageSize) {
+      if ((model === 'gemini-2.5-flash-image-preview' || model === 'gemini-2.5-flash-image' || model === 'gemini-3-pro-image-preview') && imageSize) {
         console.log('Pre-padding character images for Gemini...');
 
         // Collect all unique characters used across all frames
@@ -1264,7 +1264,7 @@ const StoryboardWorkspace: React.FC = () => {
 
           // Fallback: If no character images and using Gemini, add ratio template
           let shouldAddGeminiInstruction = false;
-          if (frameCharacterImageUrls.length === 0 && (model === 'gemini-2.5-flash-image-preview' || model === 'gemini-2.5-flash-image') && imageSize) {
+          if (frameCharacterImageUrls.length === 0 && (model === 'gemini-2.5-flash-image-preview' || model === 'gemini-2.5-flash-image' || model === 'gemini-3-pro-image-preview') && imageSize) {
             const templateUrl = getRatioTemplateUrl(imageSize);
             if (templateUrl) {
               frameCharacterImageUrls.push(templateUrl);
@@ -1301,7 +1301,7 @@ const StoryboardWorkspace: React.FC = () => {
               character_image_urls: frameCharacterImageUrls.length > 0 ? frameCharacterImageUrls : undefined,  // Send as array if not empty
               image_size: imageSize,  // Keep brackets
               model: model,
-              model_type: model === 'gemini-2.5-flash-image' ? 'google' : 'yunwu'  // Add model_type parameter
+              model_type: (model === 'gemini-2.5-flash-image' || model === 'gemini-3-pro-image-preview') ? 'google' : 'yunwu'  // Add model_type parameter
             })
           });
           
@@ -2391,7 +2391,7 @@ const StoryboardWorkspace: React.FC = () => {
                 const newModel = e.target.value as any;
                 setModel(newModel);
                 // Auto-select translation for Gemini model
-                if (newModel === 'gemini-2.5-flash-image-preview' || newModel === 'gemini-2.5-flash-image') {
+                if (newModel === 'gemini-2.5-flash-image-preview' || newModel === 'gemini-2.5-flash-image' || newModel === 'gemini-3-pro-image-preview') {
                   setTranslationOption('translate');
                 }
               }}
@@ -2401,6 +2401,7 @@ const StoryboardWorkspace: React.FC = () => {
               <option value="sora_image">Sora Image</option>
               <option value="gemini-2.5-flash-image-preview">gemini-2.5-flash-image-preview（云雾）</option>
               <option value="gemini-2.5-flash-image">gemini-2.5-flash-image（官方）</option>
+              <option value="gemini-3-pro-image-preview">nano banana pro（官方）</option>
               <option value="seedream-4.0">Seedream 4.0（支持多图编辑）</option>
               <option value="doubao-seedream-4-0-250828">doubao-seedream-4-0</option>
             </select>
