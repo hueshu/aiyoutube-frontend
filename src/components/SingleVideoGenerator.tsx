@@ -33,6 +33,7 @@ interface PromptHistory {
   timestamp: string;
   videoModel: VideoModel;
   promptCn: string;
+  imageUrl?: string;
 }
 
 const SingleVideoGenerator: React.FC = () => {
@@ -93,12 +94,13 @@ const SingleVideoGenerator: React.FC = () => {
   };
 
   // Prompt history functions
-  const savePromptHistory = () => {
+  const savePromptHistory = (imageUrl?: string) => {
     const newRecord: PromptHistory = {
       id: Date.now().toString(),
       timestamp: new Date().toLocaleString('zh-CN'),
       videoModel: selectedVideoModel,
-      promptCn: promptText
+      promptCn: promptText,
+      imageUrl
     };
     const updated = [newRecord, ...promptHistory].slice(0, 50);
     setPromptHistory(updated);
@@ -295,7 +297,7 @@ const SingleVideoGenerator: React.FC = () => {
       const submittedTaskId = result.taskIds[0];
 
       // Save prompt to history
-      savePromptHistory();
+      savePromptHistory(imageUrl);
 
       // 4. Start polling
       startPolling(submittedTaskId);
@@ -707,16 +709,27 @@ const SingleVideoGenerator: React.FC = () => {
                           </button>
                         </div>
                       </div>
-                      <p className="text-sm text-gray-700 line-clamp-2 mb-2">{record.promptCn}</p>
-                      <button
-                        onClick={() => {
-                          setPromptText(record.promptCn);
-                          setShowHistoryModal(false);
-                        }}
-                        className="text-sm text-blue-500 hover:text-blue-700"
-                      >
-                        立即使用
-                      </button>
+                      <div className="flex gap-3">
+                        {record.imageUrl && (
+                          <img
+                            src={record.imageUrl}
+                            alt="历史图片"
+                            className="w-16 h-16 object-cover rounded flex-shrink-0"
+                          />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-700 line-clamp-2 mb-2">{record.promptCn}</p>
+                          <button
+                            onClick={() => {
+                              setPromptText(record.promptCn);
+                              setShowHistoryModal(false);
+                            }}
+                            className="text-sm text-blue-500 hover:text-blue-700"
+                          >
+                            立即使用
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
