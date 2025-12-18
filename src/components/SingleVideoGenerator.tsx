@@ -28,6 +28,13 @@ interface UploadedImage {
   url?: string;
 }
 
+interface PromptHistory {
+  id: string;
+  timestamp: string;
+  videoModel: VideoModel;
+  promptCn: string;
+}
+
 const SingleVideoGenerator: React.FC = () => {
   // Model & Ratio
   const [selectedVideoModel, setSelectedVideoModel] = useState<VideoModel>(() => {
@@ -53,6 +60,13 @@ const SingleVideoGenerator: React.FC = () => {
   // Video modal
   const [showVideoModal, setShowVideoModal] = useState(false);
 
+  // Prompt history
+  const [promptHistory, setPromptHistory] = useState<PromptHistory[]>(() => {
+    const saved = localStorage.getItem('singleVideoPromptHistory');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+
   // Polling
   const [pollingInterval, setPollingInterval] = useState<ReturnType<typeof setInterval> | null>(null);
 
@@ -76,6 +90,32 @@ const SingleVideoGenerator: React.FC = () => {
 
   const getAuthToken = () => {
     return localStorage.getItem('token') || '';
+  };
+
+  // Prompt history functions
+  const savePromptHistory = () => {
+    const newRecord: PromptHistory = {
+      id: Date.now().toString(),
+      timestamp: new Date().toLocaleString('zh-CN'),
+      videoModel: selectedVideoModel,
+      promptCn: promptText
+    };
+    const updated = [newRecord, ...promptHistory].slice(0, 50);
+    setPromptHistory(updated);
+    localStorage.setItem('singleVideoPromptHistory', JSON.stringify(updated));
+  };
+
+  const deletePromptHistory = (id: string) => {
+    const updated = promptHistory.filter(r => r.id !== id);
+    setPromptHistory(updated);
+    localStorage.setItem('singleVideoPromptHistory', JSON.stringify(updated));
+  };
+
+  const clearAllHistory = () => {
+    if (confirm('确定要清空所有历史记录吗？')) {
+      setPromptHistory([]);
+      localStorage.removeItem('singleVideoPromptHistory');
+    }
   };
 
   // Translate to English
@@ -253,6 +293,9 @@ const SingleVideoGenerator: React.FC = () => {
       }
 
       const submittedTaskId = result.taskIds[0];
+
+      // Save prompt to history
+      savePromptHistory();
 
       // 4. Start polling
       startPolling(submittedTaskId);
@@ -489,9 +532,18 @@ const SingleVideoGenerator: React.FC = () => {
 
         {/* Prompt Input */}
         <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-3">
-            提示词（中文）
-          </label>
+          <div className="flex items-center justify-between mb-3">
+            <label className="block text-sm font-medium text-gray-700">
+              提示词（中文）
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowHistoryModal(true)}
+              className="text-sm text-blue-500 hover:text-blue-700"
+            >
+              历史记录
+            </button>
+          </div>
           <textarea
             value={promptText}
             onChange={(e) => setPromptText(e.target.value)}
@@ -608,6 +660,80 @@ const SingleVideoGenerator: React.FC = () => {
               autoPlay
               className="max-w-full max-h-[90vh] rounded-lg"
             />
+          </div>
+        </div>
+      )}
+
+      {/* History Modal */}
+      {showHistoryModal && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          onClick={() => setShowHistoryModal(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold">Prompt 历史记录</h3>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              {promptHistory.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">暂无历史记录</p>
+              ) : (
+                <div className="space-y-3">
+                  {promptHistory.map((record) => (
+                    <div key={record.id} className="border rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs text-gray-500">{record.timestamp}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                            {record.videoModel}
+                          </span>
+                          <button
+                            onClick={() => deletePromptHistory(record.id)}
+                            className="text-xs text-red-500 hover:text-red-700"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-700 line-clamp-2 mb-2">{record.promptCn}</p>
+                      <button
+                        onClick={() => {
+                          setPromptText(record.promptCn);
+                          setShowHistoryModal(false);
+                        }}
+                        className="text-sm text-blue-500 hover:text-blue-700"
+                      >
+                        立即使用
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {promptHistory.length > 0 && (
+              <div className="p-4 border-t">
+                <button
+                  onClick={clearAllHistory}
+                  className="text-sm text-red-500 hover:text-red-700"
+                >
+                  清空全部历史
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
