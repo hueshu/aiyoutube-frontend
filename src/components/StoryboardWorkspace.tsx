@@ -302,17 +302,14 @@ const StoryboardWorkspace: React.FC = () => {
         
         if (isHeader) {
           dataStartIndex = 1;
-          
-          // Try to find the correct columns
+
+          // 只检测帧号列，promptCol 固定为 1（第2列：首帧图prompt）
           firstRowLower.forEach((field, idx) => {
             if (field.includes('分镜数') || field.includes('序号')) {
               frameNumberCol = idx;
             }
-            if (field.includes('分镜提示词') || field.includes('prompt') || field.includes('提示词')) {
-              promptCol = idx;
-            }
           });
-          
+
           console.log('Header detected. Frame col:', frameNumberCol, 'Prompt col:', promptCol);
         }
       }
