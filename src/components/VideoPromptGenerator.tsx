@@ -225,13 +225,13 @@ const VideoPromptGenerator: React.FC = () => {
 
   // Modal states for batch video generation
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [showProgressModal, setShowProgressModal] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showAllVideosCompleteModal, setShowAllVideosCompleteModal] = useState(false);
   const [taskCount, setTaskCount] = useState(0);
-  const [successTaskCount, setSuccessTaskCount] = useState(0);
   const [completedVideoCount, setCompletedVideoCount] = useState(0);
   const [failedVideoCount, setFailedVideoCount] = useState(0);
+
+  // Toast notification state
+  const [toastMessage, setToastMessage] = useState<{type: 'success' | 'error', message: string} | null>(null);
 
   // Character mapping states
   const [showCharacterMappingModal, setShowCharacterMappingModal] = useState(false);
@@ -246,11 +246,7 @@ const VideoPromptGenerator: React.FC = () => {
 
   // Modal states for single video regeneration
   const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
-  const [showRegenerateProgress, setShowRegenerateProgress] = useState(false);
-  const [showRegenerateSuccess, setShowRegenerateSuccess] = useState(false);
-  const [showRegenerateError, setShowRegenerateError] = useState(false);
   const [regenerateImageId, setRegenerateImageId] = useState<string | null>(null);
-  const [regenerateErrorMessage, setRegenerateErrorMessage] = useState('');
 
   // Modal state for batch download confirmation
   const [showBatchDownloadConfirm, setShowBatchDownloadConfirm] = useState(false);
@@ -1689,116 +1685,128 @@ const VideoPromptGenerator: React.FC = () => {
   };
 
   /**
-   * Handle batch video generation - Step 2: Execute submission
+   * Handle batch video generation - Step 2: Execute submission (background mode)
    */
   const executeSubmission = async () => {
-    // Hide confirm modal and show progress modal
+    // Hide confirm modal immediately, no progress modal blocking
     setShowConfirmModal(false);
-    setShowProgressModal(true);
     setIsSubmittingTasks(true);
 
+    // Show starting toast
+    setToastMessage({ type: 'success', message: '正在后台提交任务...' });
+
+    // Create timeout promise (300 seconds)
+    const TIMEOUT_MS = 300000;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('请求超时（300秒），请检查网络后重试')), TIMEOUT_MS)
+    );
+
     try {
-      // Step 1: Upload images to R2
-      const uploadedImages = await uploadImagesToR2();
+      // Race between actual submission and timeout
+      await Promise.race([
+        (async () => {
+          // Step 1: Upload images to R2
+          const uploadedImages = await uploadImagesToR2();
 
-      if (uploadedImages.length === 0) {
-        setShowProgressModal(false);
-        alert('图片上传失败，请重试');
-        setIsSubmittingTasks(false);
-        return;
-      }
+          if (uploadedImages.length === 0) {
+            throw new Error('图片上传失败，请重试');
+          }
 
-      // Step 2: Build tasks array
-      const isSora = selectedVideoModel === 'sora-2-hd';
-      const tasks: any[] = [];
+          // Step 2: Build tasks array
+          const isSora = selectedVideoModel === 'sora-2-hd';
+          const tasks: any[] = [];
 
-      for (const img of images) {
-        // For Sora: Process all images individually (no head-tail pairing)
-        // For others: Skip tail frames (they're processed with head frames)
-        if (!isSora && img.upLink && !img.downLink) continue;
+          for (const img of images) {
+            // For Sora: Process all images individually (no head-tail pairing)
+            // For others: Skip tail frames (they're processed with head frames)
+            if (!isSora && img.upLink && !img.downLink) continue;
 
-        const uploadedImg = uploadedImages.find(u => u.id === img.id);
-        if (!uploadedImg) continue;
+            const uploadedImg = uploadedImages.find(u => u.id === img.id);
+            if (!uploadedImg) continue;
 
-        // Sora doesn't support head-tail pairing
-        if (isSora) {
-          tasks.push({
-            imageUrl: uploadedImg.imageUrl,
-            promptCn: img.generatedPrompt,
-            promptEn: img.translatedPrompt
+            // Sora doesn't support head-tail pairing
+            if (isSora) {
+              tasks.push({
+                imageUrl: uploadedImg.imageUrl,
+                promptCn: img.generatedPrompt,
+                promptEn: img.translatedPrompt
+              });
+            } else {
+              const isPaired = !!img.downLink;
+              const tailImage = isPaired ? images.find(i => i.id === img.downLink) : null;
+              const uploadedTailImg = isPaired && tailImage ? uploadedImages.find(u => u.id === tailImage.id) : null;
+
+              const imageUrls = isPaired && uploadedTailImg
+                ? [uploadedImg.imageUrl, uploadedTailImg.imageUrl]
+                : [uploadedImg.imageUrl];
+
+              tasks.push({
+                imageUrls,
+                promptCn: img.generatedPrompt,
+                promptEn: img.translatedPrompt,
+                imageCount: imageUrls.length
+              });
+            }
+          }
+
+          // Step 3: Submit tasks using selected video model
+          // Determine which service to use and provider
+          const isVeo = selectedVideoModel === 'veo-3.1-fast';
+          const isJiMeng = selectedVideoModel === 'jimeng-official' || selectedVideoModel === 'jimeng-yunwu';
+
+          console.log('[DEBUG] Video model selection:', {
+            selectedVideoModel,
+            isVeo,
+            isSora,
+            isJiMeng,
+            selectedAspectRatio,
+            tasksCount: tasks.length
           });
-        } else {
-          const isPaired = !!img.downLink;
-          const tailImage = isPaired ? images.find(i => i.id === img.downLink) : null;
-          const uploadedTailImg = isPaired && tailImage ? uploadedImages.find(u => u.id === tailImage.id) : null;
 
-          const imageUrls = isPaired && uploadedTailImg
-            ? [uploadedImg.imageUrl, uploadedTailImg.imageUrl]
-            : [uploadedImg.imageUrl];
+          // Call appropriate service
+          const { taskIds } = isVeo
+            ? await submitBatchTasksVeo(tasks, selectedAspectRatio)
+            : isSora
+            ? await submitBatchTasksSora(tasks as any, selectedAspectRatio)
+            : isJiMeng
+            ? await submitBatchTasksJiMeng(tasks, selectedVideoModel === 'jimeng-yunwu' ? 'yunwu' : 'official')
+            : await submitBatchTasksHailuo(tasks);
 
-          tasks.push({
-            imageUrls,
-            promptCn: img.generatedPrompt,
-            promptEn: img.translatedPrompt,
-            imageCount: imageUrls.length
-          });
-        }
-      }
+          console.log('[DEBUG] Submission result:', { taskIds });
 
-      // Step 3: Submit tasks using selected video model
-      // Determine which service to use and provider
-      const isVeo = selectedVideoModel === 'veo-3.1-fast';
-      const isJiMeng = selectedVideoModel === 'jimeng-official' || selectedVideoModel === 'jimeng-yunwu';
+          // Map image IDs to task IDs
+          // IMPORTANT: Must match the same filtering logic as task construction above
+          let taskIndex = 0;
+          const newMapping = new Map(videoTasks);
+          for (const img of images) {
+            if (img.upLink && !img.downLink) continue; // Skip tail frames
 
-      console.log('[DEBUG] Video model selection:', {
-        selectedVideoModel,
-        isVeo,
-        isSora,
-        isJiMeng,
-        selectedAspectRatio,
-        tasksCount: tasks.length
-      });
+            // Check if image was successfully uploaded (same check as task construction)
+            const uploadedImg = uploadedImages.find(u => u.id === img.id);
+            if (!uploadedImg) continue; // Skip images that failed to upload
 
-      // Call appropriate service
-      const { taskIds } = isVeo
-        ? await submitBatchTasksVeo(tasks, selectedAspectRatio)
-        : isSora
-        ? await submitBatchTasksSora(tasks as any, selectedAspectRatio)
-        : isJiMeng
-        ? await submitBatchTasksJiMeng(tasks, selectedVideoModel === 'jimeng-yunwu' ? 'yunwu' : 'official')
-        : await submitBatchTasksHailuo(tasks);
+            if (taskIndex < taskIds.length) {
+              const existingTasks = newMapping.get(img.id) || [];
+              newMapping.set(img.id, [...existingTasks, taskIds[taskIndex]]);
+              taskIndex++;
+            }
+          }
+          setVideoTasks(newMapping);
 
-      console.log('[DEBUG] Submission result:', { taskIds });
+          // Step 4: Start polling all tasks
+          startPollingTasks();
 
-      // Map image IDs to task IDs
-      // IMPORTANT: Must match the same filtering logic as task construction above
-      let taskIndex = 0;
-      const newMapping = new Map(videoTasks);
-      for (const img of images) {
-        if (img.upLink && !img.downLink) continue; // Skip tail frames
-
-        // Check if image was successfully uploaded (same check as task construction)
-        const uploadedImg = uploadedImages.find(u => u.id === img.id);
-        if (!uploadedImg) continue; // Skip images that failed to upload
-
-        if (taskIndex < taskIds.length) {
-          const existingTasks = newMapping.get(img.id) || [];
-          newMapping.set(img.id, [...existingTasks, taskIds[taskIndex]]);
-          taskIndex++;
-        }
-      }
-      setVideoTasks(newMapping);
-
-      // Step 4: Start polling all tasks
-      startPollingTasks();
-
-      // Hide progress modal and show success modal
-      setShowProgressModal(false);
-      setSuccessTaskCount(taskIds.length);
-      setShowSuccessModal(true);
+          // Success: show auto-dismiss toast
+          setToastMessage({ type: 'success', message: `成功提交 ${taskIds.length} 个视频生成任务！` });
+          setTimeout(() => setToastMessage(null), 4000);
+        })(),
+        timeoutPromise
+      ]);
     } catch (error: any) {
       console.error('Batch generate error:', error);
-      setShowProgressModal(false);
+      // Clear any pending toast
+      setToastMessage(null);
+      // Error/timeout: require user confirmation
       alert(`提交失败: ${error.message}`);
     } finally {
       setIsSubmittingTasks(false);
@@ -1894,7 +1902,7 @@ const VideoPromptGenerator: React.FC = () => {
   };
 
   /**
-   * Execute regenerate video - Step 2: Execute submission
+   * Execute regenerate video - Step 2: Execute submission (background mode)
    */
   const executeRegenerateVideo = async () => {
     if (!regenerateImageId) return;
@@ -1902,87 +1910,105 @@ const VideoPromptGenerator: React.FC = () => {
     const img = images.find(i => i.id === regenerateImageId);
     if (!img || !img.generatedPrompt) return;
 
-    // Hide confirm modal and show progress modal
+    // Hide confirm modal immediately, no progress modal blocking
     setShowRegenerateConfirm(false);
-    setShowRegenerateProgress(true);
+    setRegenerateImageId(null);
+
+    // Show starting toast
+    setToastMessage({ type: 'success', message: '正在后台提交任务...' });
+
+    // Create timeout promise (300 seconds)
+    const TIMEOUT_MS = 300000;
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('请求超时（300秒），请检查网络后重试')), TIMEOUT_MS)
+    );
+
+    // Store regenerateImageId in local variable since we cleared the state
+    const currentImageId = regenerateImageId;
 
     try {
-      // Upload image if not already uploaded
-      const uploadedImages = await uploadImagesToR2();
-      const uploadedImg = uploadedImages.find(u => u.id === regenerateImageId);
-      if (!uploadedImg) {
-        throw new Error('图片上传失败');
-      }
+      await Promise.race([
+        (async () => {
+          // Upload image if not already uploaded
+          const uploadedImages = await uploadImagesToR2();
+          const uploadedImg = uploadedImages.find(u => u.id === currentImageId);
+          if (!uploadedImg) {
+            throw new Error('图片上传失败');
+          }
 
-      const isPaired = !!img.downLink;
-      const tailImage = isPaired ? images.find(i => i.id === img.downLink) : null;
-      const uploadedTailImg = isPaired && tailImage ? uploadedImages.find(u => u.id === tailImage.id) : null;
+          const isPaired = !!img.downLink;
+          const tailImage = isPaired ? images.find(i => i.id === img.downLink) : null;
+          const uploadedTailImg = isPaired && tailImage ? uploadedImages.find(u => u.id === tailImage.id) : null;
 
-      const imageUrls = isPaired && uploadedTailImg
-        ? [uploadedImg.imageUrl, uploadedTailImg.imageUrl]
-        : [uploadedImg.imageUrl];
+          const imageUrls = isPaired && uploadedTailImg
+            ? [uploadedImg.imageUrl, uploadedTailImg.imageUrl]
+            : [uploadedImg.imageUrl];
 
-      const isJiMeng = selectedVideoModel === 'jimeng-official' || selectedVideoModel === 'jimeng-yunwu';
-      const isVeo = selectedVideoModel === 'veo-3.1-fast';
-      const isSora = selectedVideoModel === 'sora-2-hd';
+          const isJiMeng = selectedVideoModel === 'jimeng-official' || selectedVideoModel === 'jimeng-yunwu';
+          const isVeo = selectedVideoModel === 'veo-3.1-fast';
+          const isSora = selectedVideoModel === 'sora-2-hd';
 
-      let taskId: string;
+          let taskId: string;
 
-      if (isSora) {
-        // Sora only supports single image
-        const result = await regenerateTaskSora({
-          imageUrl: uploadedImg.imageUrl,
-          promptCn: img.generatedPrompt,
-          promptEn: img.translatedPrompt,
-          aspectRatio: selectedAspectRatio
-        });
-        taskId = result.taskId;
-      } else if (isVeo) {
-        const result = await regenerateTaskVeo({
-          imageUrls,
-          promptCn: img.generatedPrompt,
-          promptEn: img.translatedPrompt,
-          imageCount: imageUrls.length,
-          aspectRatio: selectedAspectRatio
-        });
-        taskId = result.taskId;
-      } else if (isJiMeng) {
-        const result = await regenerateTaskJiMeng({
-          imageUrls,
-          promptCn: img.generatedPrompt,
-          promptEn: img.translatedPrompt,
-          imageCount: imageUrls.length,
-          provider: selectedVideoModel === 'jimeng-yunwu' ? 'yunwu' : 'official'
-        });
-        taskId = result.taskId;
-      } else {
-        // Hailuo
-        const result = await regenerateTaskHailuo({
-          imageUrls,
-          promptCn: img.generatedPrompt,
-          promptEn: img.translatedPrompt,
-          imageCount: imageUrls.length
-        });
-        taskId = result.taskId;
-      }
+          if (isSora) {
+            // Sora only supports single image
+            const result = await regenerateTaskSora({
+              imageUrl: uploadedImg.imageUrl,
+              promptCn: img.generatedPrompt,
+              promptEn: img.translatedPrompt,
+              aspectRatio: selectedAspectRatio
+            });
+            taskId = result.taskId;
+          } else if (isVeo) {
+            const result = await regenerateTaskVeo({
+              imageUrls,
+              promptCn: img.generatedPrompt,
+              promptEn: img.translatedPrompt,
+              imageCount: imageUrls.length,
+              aspectRatio: selectedAspectRatio
+            });
+            taskId = result.taskId;
+          } else if (isJiMeng) {
+            const result = await regenerateTaskJiMeng({
+              imageUrls,
+              promptCn: img.generatedPrompt,
+              promptEn: img.translatedPrompt,
+              imageCount: imageUrls.length,
+              provider: selectedVideoModel === 'jimeng-yunwu' ? 'yunwu' : 'official'
+            });
+            taskId = result.taskId;
+          } else {
+            // Hailuo
+            const result = await regenerateTaskHailuo({
+              imageUrls,
+              promptCn: img.generatedPrompt,
+              promptEn: img.translatedPrompt,
+              imageCount: imageUrls.length
+            });
+            taskId = result.taskId;
+          }
 
-      // Update mapping - add new taskId to existing array
-      const newMapping = new Map(videoTasks);
-      const existingTasks = newMapping.get(regenerateImageId) || [];
-      newMapping.set(regenerateImageId, [...existingTasks, taskId]);
-      setVideoTasks(newMapping);
+          // Update mapping - add new taskId to existing array
+          const newMapping = new Map(videoTasks);
+          const existingTasks = newMapping.get(currentImageId) || [];
+          newMapping.set(currentImageId, [...existingTasks, taskId]);
+          setVideoTasks(newMapping);
 
-      // Start polling all tasks (including this new one)
-      startPollingTasks();
+          // Start polling all tasks (including this new one)
+          startPollingTasks();
 
-      // Hide progress modal and show success modal
-      setShowRegenerateProgress(false);
-      setShowRegenerateSuccess(true);
+          // Success: show auto-dismiss toast
+          setToastMessage({ type: 'success', message: '重新生成任务已提交！' });
+          setTimeout(() => setToastMessage(null), 4000);
+        })(),
+        timeoutPromise
+      ]);
     } catch (error: any) {
       console.error('Regenerate error:', error);
-      setShowRegenerateProgress(false);
-      setRegenerateErrorMessage(error.message || '重新生成失败');
-      setShowRegenerateError(true);
+      // Clear any pending toast
+      setToastMessage(null);
+      // Error/timeout: require user confirmation
+      alert(`提交失败: ${error.message || '重新生成失败'}`);
     }
   };
 
@@ -2304,46 +2330,20 @@ const VideoPromptGenerator: React.FC = () => {
         </div>
       )}
 
-      {/* Progress Modal */}
-      {showProgressModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4 shadow-xl">
-            <div className="flex flex-col items-center">
-              <Loader className="w-16 h-16 text-blue-500 animate-spin mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">正在提交中</h3>
-              <p className="text-gray-600 text-center">
-                请稍等，正在上传图片并提交任务...
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Success Modal */}
-      {showSuccessModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-            <div className="flex flex-col items-center mb-4">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                <Check className="w-10 h-10 text-green-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">提交成功！</h3>
-            </div>
-            <p className="text-gray-600 text-center mb-2">
-              已成功提交 <span className="font-bold text-green-600">{successTaskCount}</span> 个视频生成任务！
-            </p>
-            <p className="text-sm text-gray-500 text-center mb-6">
-              任务已进入队列，请在右侧第四列查看生成进度。<br />
-              预计3-5分钟完成。
-            </p>
-            <div className="flex justify-center">
-              <button
-                onClick={() => setShowSuccessModal(false)}
-                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-              >
-                确定
-              </button>
-            </div>
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-4 right-4 z-50 animate-fade-in">
+          <div className={`px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 ${
+            toastMessage.type === 'success'
+              ? 'bg-green-500 text-white'
+              : 'bg-red-500 text-white'
+          }`}>
+            {toastMessage.type === 'success' ? (
+              <Check className="w-5 h-5" />
+            ) : (
+              <span className="w-5 h-5 flex items-center justify-center font-bold">!</span>
+            )}
+            <span>{toastMessage.message}</span>
           </div>
         </div>
       )}
@@ -2404,78 +2404,6 @@ const VideoPromptGenerator: React.FC = () => {
               <button
                 onClick={executeRegenerateVideo}
                 className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-              >
-                确定
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Regenerate Progress Modal */}
-      {showRegenerateProgress && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-8 max-w-md w-full mx-4 shadow-xl">
-            <div className="flex flex-col items-center">
-              <Loader className="w-16 h-16 text-blue-500 animate-spin mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">正在提交中</h3>
-              <p className="text-gray-600 text-center">
-                请稍等，正在上传图片并提交任务...
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Regenerate Success Modal */}
-      {showRegenerateSuccess && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-            <div className="flex flex-col items-center mb-4">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                <Check className="w-10 h-10 text-green-600" />
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">提交完成</h3>
-            </div>
-            <p className="text-gray-600 text-center mb-6">
-              重新生成任务已成功提交，请在右侧查看生成进度。
-            </p>
-            <div className="flex justify-center">
-              <button
-                onClick={() => {
-                  setShowRegenerateSuccess(false);
-                  setRegenerateImageId(null);
-                }}
-                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-              >
-                确定
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Regenerate Error Modal */}
-      {showRegenerateError && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-            <div className="flex flex-col items-center mb-4">
-              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                <span className="text-3xl text-red-600">✕</span>
-              </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">提交失败</h3>
-            </div>
-            <p className="text-gray-600 text-center mb-6">
-              {regenerateErrorMessage}
-            </p>
-            <div className="flex justify-center">
-              <button
-                onClick={() => {
-                  setShowRegenerateError(false);
-                  setRegenerateImageId(null);
-                  setRegenerateErrorMessage('');
-                }}
-                className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
               >
                 确定
               </button>

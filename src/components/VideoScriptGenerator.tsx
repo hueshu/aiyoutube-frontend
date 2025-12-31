@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Download, Copy, Loader, Check } from 'lucide-react';
 import { API_URL } from '../config/api';
+import JSZip from 'jszip';
 
 interface ImageFile {
   id: string;
@@ -735,6 +736,30 @@ const VideoScriptGenerator: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  // 批量下载所有图片（打包为ZIP）
+  const downloadAllImages = async () => {
+    if (images.length === 0) return;
+
+    const zip = new JSZip();
+
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
+      const paddedIndex = String(i + 1).padStart(3, '0');
+      const fileName = `${paddedIndex}_${img.name}`;
+
+      const arrayBuffer = await img.file.arrayBuffer();
+      zip.file(fileName, arrayBuffer);
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `分镜图片_${Date.now()}.zip`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
@@ -780,14 +805,23 @@ const VideoScriptGenerator: React.FC = () => {
               </div>
             </div>
 
-            {/* Clear All Button */}
+            {/* Action Buttons */}
             {images.length > 0 && (
-              <button
-                onClick={() => setImages([])}
-                className="px-4 py-2 bg-red-500 text-white text-sm rounded-md hover:bg-red-600"
-              >
-                清空图片
-              </button>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={downloadAllImages}
+                  className="px-4 py-2 bg-green-500 text-white text-sm rounded-md hover:bg-green-600 flex items-center space-x-1"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>批量下载</span>
+                </button>
+                <button
+                  onClick={() => setImages([])}
+                  className="px-4 py-2 bg-red-500 text-white text-sm rounded-md hover:bg-red-600"
+                >
+                  清空图片
+                </button>
+              </div>
             )}
           </div>
 
